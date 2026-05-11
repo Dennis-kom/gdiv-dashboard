@@ -9,7 +9,7 @@ from Setllements.settlement_details_frame import present_single_settlement_detai
 class PageBase:
     def __init__(self, settlement_name):
         self.settlement_name = settlement_name
-        self.tab1, self.tab2, self.tab3 = st.tabs([f"{st.session_state.settlement_name} מבט כללי", "מרכיבי בטחון מחושבים", "מפת חום"])
+        self.tab1, self.tab2 = st.tabs([f"{st.session_state.settlement_name} מבט כללי", "מרכיבי בטחון מחושבים"])
 
         self.page_present()
 
@@ -44,6 +44,4 @@ class PageBase:
             #   מפורט
             with sub_tab2:
                 show_detailed_calculeted_table(self.settlement_name)
-        # heat map
-        with self.tab3:
-            show_detailed_badged_table(self.settlement_name)
+

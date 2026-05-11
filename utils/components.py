@@ -182,7 +182,6 @@ def show_settlement_map(lat, lon, settlement_name):
         icon=folium.Icon(color="blue", icon="info-sign")
     ).add_to(m)
 
-
     st_folium(m, width=300, height=300)
 
 @st.cache_data(ttl=3600)
@@ -238,38 +237,47 @@ def show_detailed_calculeted_table(settlement_name):
 
 
     _all = 'הכל'
-    st.session_state.options = {
-        'status': ['הכל', 'תקין', 'בהקמה', 'לא תקין\חסר'],
-        'action': ['הכל', 'TRUE', 'FALSE'],
-        'types': ['אישי', 'מסגרתי', 'הכל'],
-        'frame': ['הכל', '7+', '4-7', '0-4'],
-        'domain': ['הכל', 'מחלקת הגנה', 'ישוב', 'צח"י', 'פרויקטים'],
-        'economy': ['הכל', 'הגנה ישובית', 'צל"מ', 'תחמושת', 'ציוד לוגיסטי', 'אמסל"ח', 'עמדות', 'רכב', 'חמ"ל',
-                    'הצטיידות'],
-        'model': ['הכל', 'סטטי איוש', 'מדד ציוד רפואי', 'אגד אמסל"ח', 'מדד לוגיסטי אמסל"ח אישי',
-                  'מדד לוגיסטי אמסל"ח מסגרתי', 'אגד צל"מ', 'מדד מב"ט מתקדם', 'מדד לוגיסטי חמ"ל', 'מדד לוגיסטי צח"י'],
-        'family': ['הכל', 'מב"ט בסיסי', 'נשק אישי', 'כוונות', 'אמר"ל', 'אט"ל', 'וסט', 'קסדה', 'מענ"ש', 'מיגון', 'רפואה',
-                   'מב"ט מתקדם', 'תקשוב', 'רחפן']}
+    # st.session_state.options = {
+    #     'status': ['הכל', 'תקין', 'בהקמה', 'לא תקין\חסר', 'בטיפול'],
+    #     'action': ['הכל', 'TRUE', 'FALSE'],
+    #     'types': ['אישי', 'מסגרתי', 'הכל'],
+    #     'frame': ['הכל', 'מחלקת הגנה', 'ישוב', 'צח"י', 'פרויקטים'],
+    #     'domain': ['הכל', '-', 'ציוד', 'תשתית', 'כוח אדם'],
+    #     'economy': ['הכל', 'הגנה ישובית', 'צל"מ', 'תחמושת', 'ציוד לוגיסטי', 'אמסל"ח', 'עמדות', 'רכב', 'חמ"ל',
+    #                 'הצטיידות','-'],
+    #     'model': ['הכל', 'סטטי איוש', 'מדד ציוד רפואי', 'אגד אמסל"ח', 'מדד לוגיסטי אמסל"ח אישי',
+    #               'מדד לוגיסטי אמסל"ח מסגרתי', 'אגד צל"מ', 'מדד מב"ט מתקדם', 'מדד לוגיסטי חמ"ל', 'מדד לוגיסטי צח"י'],
+    #     'family': ['הכל', 'מב"ט בסיסי', 'נשק אישי', 'כוונות', 'אמר"ל', 'אט"ל', 'וסט', 'קסדה', 'מענ"ש', 'מיגון', 'רפואה',
+    #                'מב"ט מתקדם', 'תקשוב', 'רחפן']}
+
+    all_shortcut = st.checkbox('הצג הכל')
+    default_val = ['הכל'] if all_shortcut else None
 
     with st.form('מדדים מפורטים'):
-        st.session_state.selections = {
-            'status': st.multiselect("סטטוס", st.session_state.options['status'], default='הכל'),
-            'action': st.multiselect("הפעלה", st.session_state.options['action'], default='הכל'),
-            'types': st.multiselect("סיווג", st.session_state.options['types'], default='הכל'),
-            'frame': st.multiselect("מסגרת", st.session_state.options['frame'], default='הכל'),
-            'domain': st.multiselect("תחום", st.session_state.options['domain'], default='הכל'),
-            'model': st.multiselect("מודל", st.session_state.options['model'], default='הכל'),
-            'economy': st.multiselect("משק", st.session_state.options['economy'], default='הכל'),
-            'family': st.multiselect("משפחה", st.session_state.options['family'], default='הכל')
-        }
 
-        data_view = st.radio(
-            " סוג ההצגה:",
-            ["שעונים", "פנל", "פריסה"],
-            index=0
-        )
+        ssub_col1, ssub_col2 = st.columns(2)
+        with ssub_col1:
+            st.session_state.selections = {
+                'status': st.multiselect("סטטוס", InternalGoogleSheetVars.options['status'], default=default_val),
+                'action': st.multiselect("הפעלה", InternalGoogleSheetVars.options['action'], default=default_val),
+                'types': st.multiselect("סיווג", InternalGoogleSheetVars.options['types'], default=default_val),
+                'frame': st.multiselect("מסגרת", InternalGoogleSheetVars.options['frame'], default=default_val),
+                'domain': st.multiselect("תחום", InternalGoogleSheetVars.options['domain'], default=default_val),
+                'model': st.multiselect("מודל", InternalGoogleSheetVars.options['model'], default=default_val),
+                'economy': st.multiselect("משק", InternalGoogleSheetVars.options['economy'], default=default_val),
+                'family': st.multiselect("משפחה", InternalGoogleSheetVars.options['family'], default=default_val)
+            }
+        with ssub_col2:
+
+            data_view = st.radio(
+                " סוג ההצגה:",
+                ["שעונים", "פנל", "פריסה"],
+                index=0
+            )
+            st.form_submit_button('הצג')
+
         for line in data_frame:
-
+            # todo: the status line can be allso list of models handle it
             if all([
             (line["סטטוס"] in st.session_state.selections['status'] or _all in st.session_state.selections['status']),
             (line["הפעלה"] in st.session_state.selections['action'] or _all in st.session_state.selections['action']),
@@ -281,63 +289,40 @@ def show_detailed_calculeted_table(settlement_name):
             (line["משק"] in st.session_state.selections['economy'] or _all in st.session_state.selections['economy']),
             (line["משפחה"] in st.session_state.selections['family'] or _all in st.session_state.selections['family'])
         ]):
-                #print(f" madad {line['מדד']}   kriterion{line['קריטריון']}  status {line['סטטוס']}")
+
                 if 'רבש"צ' not in line['קריטריון']:
                     raw_data.append((line['קריטריון'],int(statuses_values_dict[line['סטטוס']])*100 if line.get('סטטוס') else float(line['מדד'][:-1])))
 
-        st.form_submit_button('הצג')
-        grid = make_grid(len(raw_data), len(raw_data))
-        rows = 0
-        cols = 0
+        with st.container():
+            if len(raw_data) > 0:
+                if data_view == "פריסה":
+                    int_data_frame = {itm[0]:itm[1] for itm in raw_data}
+                    show_spider_chart(int_data_frame,'פיזור מדדים')
+                else:
+                    if data_view == "פנל":
+                        st.markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
+                    cols = st.columns(4)
 
-    for pair in raw_data:
-        with grid[rows][cols]:
-            if data_view == "שעונים":
-                make_gauge_graph(pair[0], pair[1])
-            if data_view == "פנל":
-                if 0 <= pair[1] < 50:
-                    color = "error"
-                elif 50 <= pair[1] < 90:
-                    color = "part"
-                elif pair[1] >= 90:
-                    color = "success"
-                status_badge(pair[0], color)
-            if data_view == "פריסה":
-                show_spider_chart({pair[0]: pair[1]}, pair[0])
+                    for i, pair in enumerate(raw_data):
+                        current_col = cols[i % 4]
+                        with current_col:
+                            if data_view == "שעונים":
 
-        if cols == len(raw_data) - 1:
-            cols = 0
-            rows += 1
-        else:
-            cols += 1
+                                make_gauge_graph(pair[0], pair[1])
+
+                            elif data_view == "פנל":
+                                if 0 <= pair[1] < 50:
+                                    color = "error"
+                                elif 50 <= pair[1] < 90:
+                                    color = "part"
+                                elif pair[1] >= 90:
+                                    color = "success"
+                                with st.container():
+                                    status_badge(pair[0], color)
+                                    st.markdown("<div style='height: 45px;'></div>", unsafe_allow_html=True)
 
 
-        # for title, table_range in raw_data.items():
-        #     data = []
-        #     for tab in table_range[1:]:
-        #         if len(tab) > column_mold[mold_index]:
-        #             data.append([tab[0],float(tab[column_mold[mold_index]][:-1])])
-        #         else:
-        #             data.append([tab[0],0])
-        #     cols = [table_range[0][0], table_range[0][column_mold[mold_index]]]
-        #     data_frames[title] = pd.DataFrame(data, columns=cols)
-        #
-        #     st.title(title)
-        #     st.dataframe(
-        #         data_frames[title],
-        #         column_config={
-        #             cols[1]: st.column_config.ProgressColumn(
-        #                 cols[1],
-        #                 help="",
-        #                 format="%.0f%%",
-        #                 min_value=0,
-        #                 max_value=100,
-        #             ),
-        #         },
-        #         hide_index=True,
-        #         width='stretch'
-        #     )
-        #     mold_index += 1
+
 
 @st.cache_data(ttl=3600)
 def show_detailed_badged_table(settlement_name):
@@ -401,7 +386,7 @@ def show_spider_chart(data_frame: Dict,index: str):
         title="ניתוח מדדים - מבט רב ממדי"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def show_heat_map(matrix_data_frame: list, index: str):
@@ -414,4 +399,4 @@ def show_heat_map(matrix_data_frame: list, index: str):
                     aspect="auto",
                     color_continuous_scale='Viridis',  # סקאלת צבעים
                     title=index)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
