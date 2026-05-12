@@ -4,7 +4,8 @@ import folium
 import branca
 import plotly.graph_objects as go
 from utils.gsheets_auth import GoogleSheetsAuth
-from utils.components import status_badge, make_gauge_graph, make_grid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from utils.components import status_badge, make_gauge_graph, make_grid, LocalDataEntry
 from variables.static import InternalGoogleSheetVars
 from app import sheet
 import logging
@@ -38,8 +39,11 @@ st.session_state.types = ['הכל', 'סמוך', 'ליבה', 'ליבה קדמי']
 st.session_state.distances = ['הכל', '7+', '4-7', '0-4']
 st.session_state.settlements = ['הכל'] + list(InternalGoogleSheetVars.settlements_data.keys())
 st.session_state.val_selections =  ['הכל'] + ["0-30", "30-50", "50-90", "90-100"]
+st.session_state.data_view_selector = "raw"
+st.session_state.models_list = InternalGoogleSheetVars.options['model']
 
-def filters(filter_type: str,key="default"):
+
+def filtering(filter_type: str,key="default"):
 
     match filter_type:
         case "main":
@@ -58,6 +62,7 @@ def filters(filter_type: str,key="default"):
             data_load_measure_state["load_stack"] += 1 if all_shortcut else 0
             st.session_state.settlements_selections = st.multiselect("ישובים", st.session_state.settlements, default=default_val)
         case "selections":
+            st.session_state.data_view_selector = "raw"
             all_shortcut = st.checkbox('הצג הכל',key=key)
             default_val = ['הכל'] if all_shortcut else None
             data_load_measure_state["load_stack"] += 1 if all_shortcut else 0
@@ -72,6 +77,9 @@ def filters(filter_type: str,key="default"):
                 'model': st.multiselect("מודל", InternalGoogleSheetVars.options['model'], default=default_val),
                 'economy': st.multiselect("משק", InternalGoogleSheetVars.options['economy'], default=default_val),
                 'family': st.multiselect("משפחה", InternalGoogleSheetVars.options['family'], default=default_val)}
+        case "model":
+            st.session_state.data_view_selector = "model"
+            st.session_state.model_selection = st.multiselect("מודל", InternalGoogleSheetVars.options['model'])
         case "values":
             all_shortcut = st.checkbox('הצג הכל',key=key)
             default_val = ['הכל'] if all_shortcut else None
@@ -93,7 +101,7 @@ with tab1:
             with st.container():
                 col_a, col_b, col_c = st.columns(3)
                 with col_a:
-                    filters("main","main_filter")
+                    filtering("main","main_filter")
                 with col_b:
                     st.write("\n יש לבחור אפשרות אחת לפחות ")
                 with col_c:
@@ -135,7 +143,7 @@ with tab2:
             with st.container():
                 col_a, col_b, col_c = st.columns(3)
                 with col_a:
-                    filters("main", "map_main_filter_1")
+                    filtering("main", "map_main_filter_1")
                 with col_b:
                     st.write("\n יש לבחור אפשרות אחת לפחות ")
                 with col_c:
@@ -204,41 +212,141 @@ with tab2:
         # expose_int_map()
     # st.form_submit_button("טען")
 
-with (tab3):
-    with st.form(key="data_analysis", width="stretch"):
-        with st.expander("פילטר ראשי"):
-            with st.container():
-                col_a, col_b, col_c = st.columns(3)
-                with col_a:
-                    filters("main", "data_analysis_filter_chbx")
-                    filters("settlements","settlements_chbx")
-                with col_b:
-                    filters("selections", "selections_chbx")
-                with col_c:
-                    filters("values", "values_chbx")
-                    st.form_submit_button("טען", key="width_data")
+with tab3:
+    sub_tab_detailed, sub_tab_model = st.tabs(["גולמי", "מודל"])
+    with sub_tab_detailed:
+        with st.form(key="data_analysis", width="stretch"):
+            with st.expander("פילטר ראשי"):
+                with st.container():
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        filtering("main", "data_analysis_filter_chbx")
+                        filtering("settlements","settlements_chbx")
+                    with col_b:
+                        filtering("selections", "selections_chbx")
+                    with col_c:
+                        filtering("values", "values_chbx")
+                        st.form_submit_button("טען", key="width_data")
+    with sub_tab_model:
+        with st.form(key="data_analysis_model", width="stretch"):
+            with st.expander("פילטר ראשי"):
+                with st.container():
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        filtering("main", "data_analysis_filter_model_chbx")
+                        filtering("settlements","settlements_model_chbx")
+                    with col_b:
+                        filtering("model", "selections_model")
+                    with col_c:
+                        filtering("values", "values_model_chbx")
+                        st.form_submit_button("טען", key="d_model")
 
 
+        print("============== Testing sgment ================")
         if data_load_measure_state["load_stack"] == data_load_measure_state["max_load"]:
-            st.write("שימ/י לב כי כל הנתונים נבחרו להצגה הצגת הנתונים עלולה לקחת זמן רב! ")
+            st.toast("שימ/י לב כי כל הנתונים נבחרו להצגה הצגת הנתונים עלולה לקחת זמן רב! ")
 
         # create a list of settlements to buffer the search dimension
+        print(" | create a list of settlements to buffer the search dimension")
         target_settlements_list = []
         shrinked_settlements_list = []
+        st.session_state.attributes = []
         if _all in st.session_state.settlements_selections:
             target_settlements_list = list(InternalGoogleSheetVars.settlements_data.keys())
         else:
             target_settlements_list = st.session_state.settlements_selections
 
         # tighten search scope with main filters
+        print(" | tighten search scope with main filters")
+        print(" | testing sources:")
+        print(f" | divisions filter: {st.session_state.filters["division"]}")
+        print(f" | councils filter: {st.session_state.filters["council"]}")
+        print(f" | types filter: {st.session_state.filters["type"]}")
+        print(" | ")
         for settlement in target_settlements_list:
-            if (_all in st.session_state.filters["divisions"] and len(st.session_state.filters["divisions"]) == 1) or (set(st.session_state.filters["divisions"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["division"]))):
-                if (_all in st.session_state.filters["councils"] and len(st.session_state.filters["councils"]) == 1) or (set(st.session_state.filters["councils"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["council"]))):
-                    if (_all in st.session_state.filters["types"] and len(st.session_state.filters["types"]) == 1) or (set(st.session_state.filters["types"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["type"]))):
-                        if (_all in st.session_state.filters["distances"] and len(st.session_state.filters["distances"]) == 1) or (set(st.session_state.filters["distances"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["distance"]))):
+            if (_all in st.session_state.filters["division"] and len(st.session_state.filters["division"]) == 1) or (set(st.session_state.filters["division"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["division"]))):
+                if (_all in st.session_state.filters["council"] and len(st.session_state.filters["council"]) == 1) or (set(st.session_state.filters["council"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["council"]))):
+                    if (_all in st.session_state.filters["type"] and len(st.session_state.filters["type"]) == 1) or (set(st.session_state.filters["type"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["type"]))):
+                        if (_all in st.session_state.filters["distance"] and len(st.session_state.filters["distance"]) == 1) or (set(st.session_state.filters["distance"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["distance"]))):
+                            print(f" |_ settlement: {settlement}")
                             shrinked_settlements_list.append(settlement)
             else:
                 continue
         # create a list of the attributes that should be taken from the tables
+        print(" | create a list of the attributes that should be taken from the tables")
+        if st.session_state.data_view_selector =="raw":
+            if st.session_state.selections:
+                for key in st.session_state.selections:
+                    print(f" | key from st.session_state.selection: {key}")
+                    if _all not in st.session_state.selections[key]:
+                        st.session_state.attributes += st.session_state.selections[key]
+                        print(f" | added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}")
+                    else:
+                        st.session_state.attributes += InternalGoogleSheetVars.options[key]
+                        print(
+                            f" |_ added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}")
+        else:
+            st.session_state.attributes = st.session_state.model_selection
+
         # create data frame according to the selection of the representation
+
         # buffer related data using external data source (from tables)
+
+        results = []
+        print(" | data grabbing segment")
+        print(f" | shrinked_settlements_list length: {len(shrinked_settlements_list)}")
+
+
+        # grabbing data from the googlesheet table
+        data_frame = {}
+        lines_buffer = []
+        for line in sheet:
+            if line['ישוב'] in shrinked_settlements_list:
+                lines_buffer.append(line)
+
+        # preparing for calculations
+        for attr in st.session_state.attributes:
+            for line in shrinked_settlements_list:
+                if data_frame.get(attr):
+                    data_frame[attr] += line[attr]
+                else:
+                    data_frame[attr] = line[attr]
+
+        # making the sums into averages
+        for value in data_frame.values():
+            value = value/len(shrinked_settlements_list)
+
+
+        # data presentation
+        max_cols = 4
+        rows = 0
+        cols = 0
+        grid = make_grid(max_cols, max_rows)
+
+        for attr, value in data_frame.items():
+            with grid[rows][cols]:
+                make_gauge_graph(attr, value)
+
+            if cols == max_cols - 1 :
+                cols = 0
+                rows += 1
+            else:
+                cols += 1
+
+
+
+        # with st.spinner("מושך נתונים ..."):
+        #     with ThreadPoolExecutor(max_workers=67) as executor:
+        #
+        #         future_to_sheet = { executor.submit(LocalDataEntry.spreadsheet.get_worksheets_range, (InternalGoogleSheetVars.mbt_spreadsheet_name, s)): s for s in shrinked_settlements_list}
+        #
+        #         for future in as_completed(future_to_sheet):
+        #             sheet_name = future_to_sheet[future]
+        #             try:
+        #                 data = future.result()
+        #                 print(sheet_name)
+        #                 print(data)
+        #                 results.append(data)
+        #
+        #             except Exception as e:
+        #                 print(f"{sheet_name} - exception: {e}")

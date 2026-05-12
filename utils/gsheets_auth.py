@@ -1,5 +1,6 @@
 import gspread
 from google.oauth2.service_account import Credentials
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 
 @st.cache_resource
@@ -31,3 +32,4 @@ class GoogleSheetsAuth:
     def get_worksheets_range(self, spreadsheet_name: str, worksheet_name: str, ranges:str):
         # d(spreadsheet_name, worksheet_name)
         return self.get_spreadsheet(spreadsheet_name).worksheet(worksheet_name).get(ranges)
+
