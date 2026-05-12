@@ -161,7 +161,6 @@ def make_gauge_graph(in_title, in_value):
 @st.cache_data(ttl=3600)
 def self_search_make_gauge_graph(settlement_name):
 
-
     settlement_details = {}
     for line in LocalDataEntry.data_sheet:
         if line['ישוב'] == settlement_name:
@@ -400,3 +399,69 @@ def show_heat_map(matrix_data_frame: list, index: str):
                     color_continuous_scale='Viridis',  # סקאלת צבעים
                     title=index)
     st.plotly_chart(fig, width='stretch')
+
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+
+def show_status_heat_map(matrix_data: list, row_names: list, col_names: list, title: str):
+
+    # 1. מיפוי המספרים למילים לצורך התצוגה
+    status_map = {0: "לא תקין", 1: "חלקי", 2: "תקין"}
+
+    text_matrix = [[status_map.get(val, "") for val in row] for row in matrix_data]
+
+    df = pd.DataFrame(matrix_data, columns=col_names, index=row_names)
+
+    custom_colors = [
+        [0.0, "rgb(215, 48, 39)"],  # אדום עמוק
+        [0.5, "rgb(255, 255, 191)"],  # צהוב בהיר
+        [1.0, "rgb(26, 152, 80)"]  # ירוק עמוק
+    ]
+
+    # 4. יצירת הגרף
+    fig = px.imshow(
+        df,
+        labels=dict(x="מדד", y="מיקום", color="סטטוס"),
+        x=col_names,
+        y=row_names,
+        color_continuous_scale=custom_colors,
+        title=title,
+        aspect="auto"
+    )
+
+    # הלבשת הטקסט על המשבצות במקום המספרים
+    fig.update_traces(
+        text=text_matrix,
+        texttemplate="%{text}",
+        hovertemplate="<b>%{y} - %{x}</b><br>סטטוס: %{text}<extra></extra>"
+    )
+
+    # הגדרות עיצוב נוספות
+    fig.update_layout(
+        coloraxis_showscale=False,  # מחביא את סרגל הצבעים (כי המילים כבר מסבירות)
+        font=dict(size=14)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# --- דוגמה לשימוש ---
+
+# 0=אדום, 1=צהוב, 2=ירוק
+# data = [
+#     [2, 0, 1],
+#     [0, 1, 1],
+#     [2, 2, 0]
+# ]
+#
+# rows = ["גליל עליון", "מטה אשר", "מעלה יוסף"]
+# cols = ["מוכנות", "לוגיסטיקה", "כוח אדם"]
+#
+# show_status_heat_map(data, rows, cols, "סטטוס מדדים רוחבי")
+def place_vertical_spacer(dim: int):
+
+    for i in range(dim):
+        st.write("")

@@ -5,7 +5,8 @@ import branca
 import plotly.graph_objects as go
 from utils.gsheets_auth import GoogleSheetsAuth
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from utils.components import status_badge, make_gauge_graph, make_grid, LocalDataEntry
+from utils.components import status_badge, make_gauge_graph, make_grid, LocalDataEntry, place_vertical_spacer, \
+    show_spider_chart, show_heat_map, show_status_heat_map
 from variables.static import InternalGoogleSheetVars
 from app import sheet
 import logging
@@ -40,7 +41,7 @@ st.session_state.distances = ['הכל', '7+', '4-7', '0-4']
 st.session_state.settlements = ['הכל'] + list(InternalGoogleSheetVars.settlements_data.keys())
 st.session_state.val_selections =  ['הכל'] + ["0-30", "30-50", "50-90", "90-100"]
 st.session_state.data_view_selector = "raw"
-st.session_state.models_list = InternalGoogleSheetVars.options['model']
+st.session_state.models_list = [mod  for mod in InternalGoogleSheetVars.options['model'] if "מדד" in mod] + ["מדד נץ"]
 
 
 def filtering(filter_type: str,key="default"):
@@ -79,7 +80,7 @@ def filtering(filter_type: str,key="default"):
                 'family': st.multiselect("משפחה", InternalGoogleSheetVars.options['family'], default=default_val)}
         case "model":
             st.session_state.data_view_selector = "model"
-            st.session_state.model_selection = st.multiselect("מודל", InternalGoogleSheetVars.options['model'])
+            st.session_state.model_selection = st.multiselect("מודל", st.session_state.models_list)
         case "values":
             all_shortcut = st.checkbox('הצג הכל',key=key)
             default_val = ['הכל'] if all_shortcut else None
@@ -239,6 +240,8 @@ with tab3:
                         filtering("model", "selections_model")
                     with col_c:
                         filtering("values", "values_model_chbx")
+                        st.session_state.data_view_options = st.radio("צורת הצגה", ["שעונים", "פיזור" ,"מפת חום"])
+                        place_vertical_spacer(5)
                         st.form_submit_button("טען", key="d_model")
 
 
@@ -305,33 +308,68 @@ with tab3:
                 lines_buffer.append(line)
 
         # preparing for calculations
+        status_translator = {"תקין":100,"בהקמה":50, "לא תקין\חסר": 20}
+        local_convertion = {"מדד לוגיסטי אמסל\"ח אישי":"מדד לוגיסטי אמסל\"ח אישי",
+                            "מדד לוגיסטי אמסל\"ח מסגרתי":"מדד לוגיסטי אמסל\"ח מסגרתי",
+                            "מדד מאג":"מדד מאג",
+                            "מדד ציוד רפואי":"מדד ציוד רפואי",
+                            "מדד מב\"ט בסיסי":"מדד מב\"ט בסיסי",
+                            "מדד מב\"ט מתקדם":"מדד מב\"ט מתקדם",
+                            "מדד לוגיסטי צח\"י":"מדד לוגיסטי צח\"י",
+                            "מדד לוגיסטי חמ\"ל":"מדד לוגיסטי חמ\"ל",
+                            "מדד לוגיסטי מ\"ה":"מחלקת הגנה - ציוד - לוגיסטי",
+                            "מדד איוש מ\"ה":"מדד איוש מ\"ה",
+                            "מדד ציוד תקשוב מ\"ה": "מחלקת הגנה - ציוד - תקשוב" ,
+                            "מדד צח\"י":["צח\"י - ציוד","צח\"י - כח אדם" , "צח\"י כשירות סטטוס"],
+                            "נץ הטמעה סטטוס":{"name":"נץ הטמעה סטטוס"},
+                            "מדד נץ":{"name":"נץ הטמעה סטטוס"},
+                            "מדד ציוד לוגיסטי מ\"ה":""}
+        st.session_state.hm_data_frame = []
         for attr in st.session_state.attributes:
-            for line in shrinked_settlements_list:
-                if data_frame.get(attr):
-                    data_frame[attr] += line[attr]
+            hm_row = []
+            if not local_convertion.get(attr):
+                hm_row = [float(line[attr][:-1]) for line in lines_buffer]
+                data_frame[attr] = sum(hm_row)/len(lines_buffer)
+            else:
+                if local_convertion.get(attr) and type(local_convertion.get(attr)) == type(str):
+                    hm_row = [float(line[local_convertion.get(attr)][:-1]) for line in lines_buffer]
+                    data_frame[attr] = sum(hm_row) / len(lines_buffer)
+                elif local_convertion.get(attr) and type(local_convertion.get(attr)) == type([]):
+                    hm_row = sum([float(line[val][:-1]) if "%" in line[val] else status_translator.get(val) for val in local_convertion.get(attr)])/len(local_convertion.get(attr))
+                    data_frame[attr] = sum([sum([float(line[val][:-1]) if "%" in line[val] else status_translator.get(val) for val in local_convertion.get(attr)])/len(local_convertion.get(attr)) for line in lines_buffer])/len(lines_buffer)
+                elif local_convertion.get(attr) and type(local_convertion.get(attr)) == type({}):
+                    hm_row = [status_translator.get(line[local_convertion.get(attr)["name"]]) for line in lines_buffer]
+                    data_frame[attr] = sum(hm_row) / len(lines_buffer)
                 else:
-                    data_frame[attr] = line[attr]
-
-        # making the sums into averages
-        for value in data_frame.values():
-            value = value/len(shrinked_settlements_list)
-
+                    data_frame[attr] = 0
+            st.session_state.hm_data_frame.append(hm_row)
 
         # data presentation
-        max_cols = 4
-        rows = 0
-        cols = 0
-        grid = make_grid(max_cols, max_rows)
+        if st.session_state.data_view_options == "שעונים":
+            max_cols = 4
+            rows = 0
+            cols = 0
+            grid = make_grid(max_cols, max_rows)
 
-        for attr, value in data_frame.items():
-            with grid[rows][cols]:
-                make_gauge_graph(attr, value)
+            for attr, value in data_frame.items():
+                with grid[rows][cols]:
+                    make_gauge_graph(attr, value)
+                    if st.session_state.data_view_options == "מפת חום":
+                        pass
+                if cols == max_cols - 1 :
+                    cols = 0
+                    rows += 1
+                else:
+                    cols += 1
+        if st.session_state.data_view_options == "פיזור":
+            show_spider_chart(data_frame, "פריסת נתונים")
 
-            if cols == max_cols - 1 :
-                cols = 0
-                rows += 1
-            else:
-                cols += 1
+        if st.session_state.data_view_options == "מפת חום":
+            row_names = shrinked_settlements_list
+            col_names = st.session_state.attributes
+            show_status_heat_map(st.session_state.hm_data_frame, col_names, row_names, "מפת חום")
+
+
 
 
 
