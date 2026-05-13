@@ -17,22 +17,7 @@ st.title("")
 
 
 _all= 'הכל'
-# st.session_state.divisions = ['הכל', 'צפונית', 'דרומית']
-# st.session_state.councils = ['הכל', 'שדרות', 'שער הנגב', 'שדות נגב', 'אשכול', 'חוף אשקלון']
-# st.session_state.types = ['הכל', 'סמוך', 'ליבה', 'ליבה קדמי']
-# st.session_state.distances = ['הכל', '7+', '4-7', '0-4']
-#
-# st.session_state.amount = 0
-# st.session_state.middle = 0
-# st.session_state.filters = {"division":st.session_state.divisions,
-#                             "council":st.session_state.councils,
-#                             "type":st.session_state.types,
-#                             "distance":st.session_state.distances}
-#
-# st.session_state.filters['division'] = st.multiselect("חטיבה", st.session_state.divisions)
-# st.session_state.filters['council'] = st.multiselect("מועצה", st.session_state.councils)
-# st.session_state.filters['type'] = st.multiselect("סיווג", st.session_state.types)
-# st.session_state.filters['distance'] = st.multiselect("מרחק מהגדר", st.session_state.distances)
+
 data_load_measure_state = {"max_load":4, "load_stack":0}
 st.session_state.divisions = ['הכל', 'צפונית', 'דרומית']
 st.session_state.councils = ['הכל', 'שדרות', 'שער הנגב', 'שדות נגב', 'אשכול', 'חוף אשקלון']
@@ -42,6 +27,13 @@ st.session_state.settlements = ['הכל'] + list(InternalGoogleSheetVars.settlem
 st.session_state.val_selections =  ['הכל'] + ["0-30", "30-50", "50-90", "90-100"]
 st.session_state.data_view_selector = "raw"
 st.session_state.models_list = [mod  for mod in InternalGoogleSheetVars.options['model'] if "מדד" in mod] + ["מדד נץ"]
+
+def converting_raw_data_to_numeric(data: str):
+    if "%" in data:
+        return float(data[:-1])
+    else:
+        status_translator = {"תקין": 100, "בהקמה": 50, "לא תקין\חסר": 20}
+        return status_translator.get(data, 0) # default to 0 if status not found
 
 
 def filtering(filter_type: str,key="default"):
@@ -85,8 +77,12 @@ def filtering(filter_type: str,key="default"):
             all_shortcut = st.checkbox('הצג הכל',key=key)
             default_val = ['הכל'] if all_shortcut else None
             data_load_measure_state["load_stack"] += 1 if all_shortcut else 0
-            st.session_state.values_selections = st.multiselect("ערכים",st.session_state.val_selections,default=default_val)
-
+            st.session_state.values_selections = st.multiselect("פרמטרים",st.session_state.val_selections,default=default_val)
+        case "criteria":
+            all_shortcut = st.checkbox('הצג הכל', key=key)
+            default_val = ['הכל'] if all_shortcut else None
+            data_load_measure_state["load_stack"] += 1 if all_shortcut else 0
+            st.session_state.criteria_selections = st.multiselect("קריטריונים", InternalGoogleSheetVars.options['criteria'] + ['הכל'], default=default_val)
         case _:
             pass
 
@@ -226,8 +222,114 @@ with tab3:
                     with col_b:
                         filtering("selections", "selections_chbx")
                     with col_c:
-                        filtering("values", "values_chbx")
+                        filtering("criteria", "criteria_chbx")
+                        st.session_state.data_view_options_raw = st.radio("צורת הצגה", ["שעונים", "פיזור", "מפת חום"])
+                        place_vertical_spacer(10)
                         st.form_submit_button("טען", key="width_data")
+
+            if data_load_measure_state["load_stack"] == data_load_measure_state["max_load"]:
+                st.toast("שימ/י לב כי כל הנתונים נבחרו להצגה הצגת הנתונים עלולה לקחת זמן רב! ")
+
+            # create a list of settlements to buffer the search dimension
+            print(" |[raw] create a list of settlements to buffer the search dimension ")
+            target_settlements_list = []
+            shrinked_settlements_list = []
+            st.session_state.attributes = []
+            if _all in st.session_state.settlements_selections:
+                target_settlements_list = list(InternalGoogleSheetVars.settlements_data.keys())
+            else:
+                target_settlements_list = st.session_state.settlements_selections
+
+            # tighten search scope with main filters
+            print(" |[raw] tighten search scope with main filters ")
+            print(" |[raw] testing sources :")
+            print(f" |[raw] divisions filter : {st.session_state.filters["division"]}")
+            print(f" |[raw] councils filter : {st.session_state.filters["council"]}")
+            print(f" |[raw] types filter : {st.session_state.filters["type"]}")
+            print(" |[raw] ")
+            st.session_state.main_raw_data_frame = {}
+            for settlement in target_settlements_list:
+                if (_all in st.session_state.filters["division"] and len(
+                        st.session_state.filters["division"]) == 1) or (
+                set(st.session_state.filters["division"]).intersection(
+                        set(InternalGoogleSheetVars.settlements_data[settlement]["division"]))):
+                    if (_all in st.session_state.filters["council"] and len(
+                            st.session_state.filters["council"]) == 1) or (
+                    set(st.session_state.filters["council"]).intersection(
+                            set(InternalGoogleSheetVars.settlements_data[settlement]["council"]))):
+                        if (_all in st.session_state.filters["type"] and len(
+                                st.session_state.filters["type"]) == 1) or (
+                        set(st.session_state.filters["type"]).intersection(
+                                set(InternalGoogleSheetVars.settlements_data[settlement]["type"]))):
+                            if (_all in st.session_state.filters["distance"] and len(
+                                    st.session_state.filters["distance"]) == 1) or (
+                            set(st.session_state.filters["distance"]).intersection(
+                                    set(InternalGoogleSheetVars.settlements_data[settlement]["distance"]))):
+                                # if (_all is st.session_state.filters["status"] and len(st.session_state.filters["status"]) == 1) or (set(st.session_state.filters["status"].intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["status"])))):
+                                print(f" |[raw] insertion of settlement: {settlement}")
+                                # the settlement pass all the place filters - creating instance for it data
+                                st.session_state.main_raw_data_frame[settlement] = {}
+
+                                #collection anf filtering the criteria list
+                                #for crt in st.session_state.criteria_selections:
+                else:
+                    continue
+        print(" |[raw] starting grabbing from sheets")
+        with st.spinner("מושך נתונים ..."):
+            results = []
+            with ThreadPoolExecutor(max_workers=67) as executor:
+                print(" |[raw] start grabbing from sheets - ThreadPoolExecutor in context ...")
+                print(f" |[raw] static arguments: mbt_spreadsheet_name:{InternalGoogleSheetVars.mbt_spreadsheet_name}  calculated_table_ranges:{InternalGoogleSheetVars.calculated_table_ranges['הזזה']}")
+                future_to_sheet = { executor.submit(LocalDataEntry.spreadsheet.get_worksheets_range, InternalGoogleSheetVars.mbt_spreadsheet_name, s, InternalGoogleSheetVars.calculated_table_ranges['הזזה']): s for s in list(st.session_state.main_raw_data_frame.keys())}
+
+                for future in as_completed(future_to_sheet):
+                    settlement_name = future_to_sheet[future]
+                    try:
+                        # data is a list of lists of of the settlement
+                        settlement_data = future.result()
+                        # make pointing handling
+                        pointing_dict = {key: index for index, key in enumerate(settlement_data[0])}
+                        criteria_frame = []
+                        data_frame = ['תקן','כמות','מדד','סטטוס']
+                        key_transletor = {"status":'סטטוס',"action":'הפעלה',"types":'סיווג',"frame":'מסגרת',"domain":'תחום',"model":'מודל',"economy":'משק',"family":'משפחה'}
+                        print(f" |[raw] sheet_data: {settlement_name}")
+                        for line in settlement_data[1:]:
+                            if line[0] in st.session_state.criteria_selections:
+                                flag = True
+                                for eng,heb in key_transletor.items():
+                                    if _all not in st.session_state.selections[eng] and line[pointing_dict[heb]] not in st.session_state.selections[eng]:
+                                        flag = False
+                                    break
+
+                                if flag:
+                                    for key in data_frame:
+                                        st.session_state.main_raw_data_frame[settlement_name]= {}
+                                        st.session_state.main_raw_data_frame[settlement_name][line[0]] = {}
+                                        st.session_state.main_raw_data_frame[settlement_name][line[0]][key]= converting_raw_data_to_numeric(line[pointing_dict[key]])
+
+
+
+
+
+                        print(" |[raw start of data: ----------")
+                        print(settlement_data)
+                        print(" |[raw end of data: -----------")
+                        results.append(settlement_data)
+
+                    except Exception as e:
+                        print(f"- exception: {e}")
+
+                if st.session_state.data_view_options_raw == "שעונים":
+                    pass
+                elif st.session_state.data_view_options_raw == "פיזור":
+                    pass
+                else:
+                    # heat map
+                    pass
+
+
+
+
     with sub_tab_model:
         with st.form(key="data_analysis_model", width="stretch"):
             with st.expander("פילטר ראשי"):
@@ -241,16 +343,14 @@ with tab3:
                     with col_c:
                         filtering("values", "values_model_chbx")
                         st.session_state.data_view_options = st.radio("צורת הצגה", ["שעונים", "פיזור" ,"מפת חום"])
-                        place_vertical_spacer(5)
+                        place_vertical_spacer(10)
                         st.form_submit_button("טען", key="d_model")
 
-
-        print("============== Testing sgment ================")
         if data_load_measure_state["load_stack"] == data_load_measure_state["max_load"]:
             st.toast("שימ/י לב כי כל הנתונים נבחרו להצגה הצגת הנתונים עלולה לקחת זמן רב! ")
 
         # create a list of settlements to buffer the search dimension
-        print(" | create a list of settlements to buffer the search dimension")
+        print(" |[model] create a list of settlements to buffer the search dimension - model section")
         target_settlements_list = []
         shrinked_settlements_list = []
         st.session_state.attributes = []
@@ -260,44 +360,46 @@ with tab3:
             target_settlements_list = st.session_state.settlements_selections
 
         # tighten search scope with main filters
-        print(" | tighten search scope with main filters")
-        print(" | testing sources:")
-        print(f" | divisions filter: {st.session_state.filters["division"]}")
-        print(f" | councils filter: {st.session_state.filters["council"]}")
-        print(f" | types filter: {st.session_state.filters["type"]}")
-        print(" | ")
+        print(" |[model] tighten search scope with main filters")
+        print(" |[model] testing sources:")
+        print(f" |[model] divisions filter: {st.session_state.filters["division"]}")
+        print(f" |[model] councils filter: {st.session_state.filters["council"]}")
+        print(f" |[model] types filter: {st.session_state.filters["type"]}")
+        print(" |[model] ")
         for settlement in target_settlements_list:
             if (_all in st.session_state.filters["division"] and len(st.session_state.filters["division"]) == 1) or (set(st.session_state.filters["division"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["division"]))):
                 if (_all in st.session_state.filters["council"] and len(st.session_state.filters["council"]) == 1) or (set(st.session_state.filters["council"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["council"]))):
                     if (_all in st.session_state.filters["type"] and len(st.session_state.filters["type"]) == 1) or (set(st.session_state.filters["type"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["type"]))):
                         if (_all in st.session_state.filters["distance"] and len(st.session_state.filters["distance"]) == 1) or (set(st.session_state.filters["distance"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["distance"]))):
-                            print(f" |_ settlement: {settlement}")
+                            print(f" |_[model] settlement: {settlement}")
                             shrinked_settlements_list.append(settlement)
             else:
                 continue
+
+        ################################# Logic Segment ######################################
+
         # create a list of the attributes that should be taken from the tables
-        print(" | create a list of the attributes that should be taken from the tables")
+        print(" |[model] create a list of the attributes that should be taken from the tables")
         if st.session_state.data_view_selector =="raw":
             if st.session_state.selections:
                 for key in st.session_state.selections:
-                    print(f" | key from st.session_state.selection: {key}")
+                    print(f" |[model] key from st.session_state.selection: {key}")
                     if _all not in st.session_state.selections[key]:
                         st.session_state.attributes += st.session_state.selections[key]
-                        print(f" | added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}")
+                        print(f" |[model] added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}")
                     else:
                         st.session_state.attributes += InternalGoogleSheetVars.options[key]
                         print(
-                            f" |_ added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}")
+                            f" |_[model] added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}")
         else:
             st.session_state.attributes = st.session_state.model_selection
 
         # create data frame according to the selection of the representation
-
         # buffer related data using external data source (from tables)
 
         results = []
-        print(" | data grabbing segment")
-        print(f" | shrinked_settlements_list length: {len(shrinked_settlements_list)}")
+        print(" |[model] data grabbing segment")
+        print(f" |[model] shrinked_settlements_list length: {len(shrinked_settlements_list)}")
 
 
         # grabbing data from the googlesheet table
@@ -307,41 +409,43 @@ with tab3:
             if line['ישוב'] in shrinked_settlements_list:
                 lines_buffer.append(line)
 
+
         # preparing for calculations
         status_translator = {"תקין":100,"בהקמה":50, "לא תקין\חסר": 20}
-        local_convertion = {"מדד לוגיסטי אמסל\"ח אישי":"מדד לוגיסטי אמסל\"ח אישי",
-                            "מדד לוגיסטי אמסל\"ח מסגרתי":"מדד לוגיסטי אמסל\"ח מסגרתי",
-                            "מדד מאג":"מדד מאג",
-                            "מדד ציוד רפואי":"מדד ציוד רפואי",
-                            "מדד מב\"ט בסיסי":"מדד מב\"ט בסיסי",
-                            "מדד מב\"ט מתקדם":"מדד מב\"ט מתקדם",
+        local_convertion = {
                             "מדד לוגיסטי צח\"י":"מדד לוגיסטי צח\"י",
                             "מדד לוגיסטי חמ\"ל":"מדד לוגיסטי חמ\"ל",
                             "מדד לוגיסטי מ\"ה":"מחלקת הגנה - ציוד - לוגיסטי",
-                            "מדד איוש מ\"ה":"מדד איוש מ\"ה",
                             "מדד ציוד תקשוב מ\"ה": "מחלקת הגנה - ציוד - תקשוב" ,
                             "מדד צח\"י":["צח\"י - ציוד","צח\"י - כח אדם" , "צח\"י כשירות סטטוס"],
                             "נץ הטמעה סטטוס":{"name":"נץ הטמעה סטטוס"},
                             "מדד נץ":{"name":"נץ הטמעה סטטוס"},
-                            "מדד ציוד לוגיסטי מ\"ה":""}
+                            "מדד ציוד לוגיסטי מ\"ה":"מדד לוגיסטי מ\"ה"
+                             }
         st.session_state.hm_data_frame = []
         for attr in st.session_state.attributes:
             hm_row = []
+            print(f" |[model] current attribute: {attr}")
             if not local_convertion.get(attr):
                 hm_row = [float(line[attr][:-1]) for line in lines_buffer]
                 data_frame[attr] = sum(hm_row)/len(lines_buffer)
+                print(f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}")
             else:
-                if local_convertion.get(attr) and type(local_convertion.get(attr)) == type(str):
+                if local_convertion.get(attr.strip()) and type(local_convertion.get(attr.strip())) == type("str"):
                     hm_row = [float(line[local_convertion.get(attr)][:-1]) for line in lines_buffer]
                     data_frame[attr] = sum(hm_row) / len(lines_buffer)
+                    print(f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}")
                 elif local_convertion.get(attr) and type(local_convertion.get(attr)) == type([]):
                     hm_row = sum([float(line[val][:-1]) if "%" in line[val] else status_translator.get(val) for val in local_convertion.get(attr)])/len(local_convertion.get(attr))
                     data_frame[attr] = sum([sum([float(line[val][:-1]) if "%" in line[val] else status_translator.get(val) for val in local_convertion.get(attr)])/len(local_convertion.get(attr)) for line in lines_buffer])/len(lines_buffer)
+                    print(f" |[model] inserted data_frame[attr] : {data_frame[attr]}")
                 elif local_convertion.get(attr) and type(local_convertion.get(attr)) == type({}):
                     hm_row = [status_translator.get(line[local_convertion.get(attr)["name"]]) for line in lines_buffer]
                     data_frame[attr] = sum(hm_row) / len(lines_buffer)
+                    print(f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}")
                 else:
                     data_frame[attr] = 0
+                    print(f" |[model] alert!!! -  inserted data_frame[attr] : is 0 - default value applied - attribute: {attr}")
             st.session_state.hm_data_frame.append(hm_row)
 
         # data presentation
@@ -373,18 +477,4 @@ with tab3:
 
 
 
-        # with st.spinner("מושך נתונים ..."):
-        #     with ThreadPoolExecutor(max_workers=67) as executor:
-        #
-        #         future_to_sheet = { executor.submit(LocalDataEntry.spreadsheet.get_worksheets_range, (InternalGoogleSheetVars.mbt_spreadsheet_name, s)): s for s in shrinked_settlements_list}
-        #
-        #         for future in as_completed(future_to_sheet):
-        #             sheet_name = future_to_sheet[future]
-        #             try:
-        #                 data = future.result()
-        #                 print(sheet_name)
-        #                 print(data)
-        #                 results.append(data)
-        #
-        #             except Exception as e:
-        #                 print(f"{sheet_name} - exception: {e}")
+
