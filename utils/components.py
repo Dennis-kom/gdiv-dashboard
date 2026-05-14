@@ -465,3 +465,7 @@ def place_vertical_spacer(dim: int):
 
     for i in range(dim):
         st.write("")
+
+
+def show_table():
+    pass

@@ -3,6 +3,7 @@ from streamlit_folium import st_folium
 import folium
 import branca
 import plotly.graph_objects as go
+import traceback
 from utils.gsheets_auth import GoogleSheetsAuth
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.components import status_badge, make_gauge_graph, make_grid, LocalDataEntry, place_vertical_spacer, \
@@ -25,12 +26,18 @@ st.session_state.types = ['הכל', 'סמוך', 'ליבה', 'ליבה קדמי']
 st.session_state.distances = ['הכל', '7+', '4-7', '0-4']
 st.session_state.settlements = ['הכל'] + list(InternalGoogleSheetVars.settlements_data.keys())
 st.session_state.val_selections =  ['הכל'] + ["0-30", "30-50", "50-90", "90-100"]
+st.sessiom_state.precents = ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100", "110", "120", "130", "140", "150"]
+st.sessiom_state.probability = ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"]
 st.session_state.data_view_selector = "raw"
 st.session_state.models_list = [mod  for mod in InternalGoogleSheetVars.options['model'] if "מדד" in mod] + ["מדד נץ"]
 
 def converting_raw_data_to_numeric(data: str):
     if "%" in data:
         return float(data[:-1])
+    elif '.' in data and data.split('.')[0].isnumeric():
+        return float(data)
+    elif data.isnumeric():
+        return float(data)
     else:
         status_translator = {"תקין": 100, "בהקמה": 50, "לא תקין\חסר": 20}
         return status_translator.get(data, 0) # default to 0 if status not found
@@ -67,7 +74,7 @@ def filtering(filter_type: str,key="default"):
                 'types': st.multiselect("סיווג", InternalGoogleSheetVars.options['types'], default=default_val),
                 'frame': st.multiselect("מסגרת", InternalGoogleSheetVars.options['frame'], default=default_val),
                 'domain': st.multiselect("תחום", InternalGoogleSheetVars.options['domain'], default=default_val),
-                'model': st.multiselect("מודל", InternalGoogleSheetVars.options['model'], default=default_val),
+                'model': st.multiselect("מודל", InternalGoogleSheetVars.options['model'] + ["הכל"], default=default_val),
                 'economy': st.multiselect("משק", InternalGoogleSheetVars.options['economy'], default=default_val),
                 'family': st.multiselect("משפחה", InternalGoogleSheetVars.options['family'], default=default_val)}
         case "model":
@@ -83,6 +90,10 @@ def filtering(filter_type: str,key="default"):
             default_val = ['הכל'] if all_shortcut else None
             data_load_measure_state["load_stack"] += 1 if all_shortcut else 0
             st.session_state.criteria_selections = st.multiselect("קריטריונים", InternalGoogleSheetVars.options['criteria'] + ['הכל'], default=default_val)
+        case "precents":
+            st.session_state.precents_selections  = st.selectbox("אחוזים", st.sessiom_state.precents)
+        case "probability":
+            st.session_state.probability_selections = st.electbox("הסתברות", st.sessiom_state.probability)
         case _:
             pass
 
@@ -230,11 +241,15 @@ with tab3:
             if data_load_measure_state["load_stack"] == data_load_measure_state["max_load"]:
                 st.toast("שימ/י לב כי כל הנתונים נבחרו להצגה הצגת הנתונים עלולה לקחת זמן רב! ")
 
+            print(" |[raw] ###############################  Start debugging Segment ###############################")
             # create a list of settlements to buffer the search dimension
             print(" |[raw] create a list of settlements to buffer the search dimension ")
             target_settlements_list = []
             shrinked_settlements_list = []
             st.session_state.attributes = []
+            st.session_state.hm_data_frame_raw_data = []
+            st.session_state.hm_data_frame_raw_rows = []
+            st.session_state.hm_data_frame_raw_cols = []
             if _all in st.session_state.settlements_selections:
                 target_settlements_list = list(InternalGoogleSheetVars.settlements_data.keys())
             else:
@@ -285,48 +300,154 @@ with tab3:
                 for future in as_completed(future_to_sheet):
                     settlement_name = future_to_sheet[future]
                     try:
-                        # data is a list of lists of of the settlement
+                        # data is a list of lists of the settlement
                         settlement_data = future.result()
                         # make pointing handling
-                        pointing_dict = {key: index for index, key in enumerate(settlement_data[0])}
+                        pointing_dict = {key.strip(): index for index, key in enumerate(settlement_data[0])}
+                        print(" |[raw] testing pointing_dict creation ..")
+                        print(" ----------------------------------- ")
+                        for key, index in pointing_dict.items():
+                            print(f"key: {key}")
+                            print(f"index: {index}")
+                            print("_ _ _ _ _ _")
+                        print(" ----------------------------------- ")
+
                         criteria_frame = []
-                        data_frame = ['תקן','כמות','מדד','סטטוס']
+                        ep_data_frame = ['תקן', 'כמות', 'מדד', 'סטטוס']
                         key_transletor = {"status":'סטטוס',"action":'הפעלה',"types":'סיווג',"frame":'מסגרת',"domain":'תחום',"model":'מודל',"economy":'משק',"family":'משפחה'}
                         print(f" |[raw] sheet_data: {settlement_name}")
+
                         for line in settlement_data[1:]:
-                            if line[0] in st.session_state.criteria_selections:
+                            flag = False
+                            print(f" |[raw] settlement: {settlement_name} criteria: {line[0]}")
+                            print(f" |[raw] criteria_selections: {st.session_state.criteria_selections}")
+                            if line[0] in st.session_state.criteria_selections or _all in st.session_state.criteria_selections:
+                                print(f" |[raw] criteria: {line[0]} or {_all} recognized as part of criteria_selections: {st.session_state.criteria_selections}")
                                 flag = True
-                                for eng,heb in key_transletor.items():
-                                    if _all not in st.session_state.selections[eng] and line[pointing_dict[heb]] not in st.session_state.selections[eng]:
-                                        flag = False
-                                    break
 
                                 if flag:
-                                    for key in data_frame:
-                                        st.session_state.main_raw_data_frame[settlement_name]= {}
+                                    # a check of the other filters
+                                    for eng,heb in key_transletor.items():
+                                        print(f" |[raw] inserting endpoint data ...")
+                                        print(" |[raw] line and dict check: ")
+                                        print(f" |__[raw]  line: {line}")
+                                        print(f" |__[raw]  line[0]: {line[0]}")
+                                        print(f" |__[raw]  line[1]: {line[1]}")
+                                        print(f" |__[raw]  line[2]: {line[2]}")
+                                        print(f" |__[raw]  heb: {heb}")
+
+                                        print(f" |__[raw]  pointing_dict.get(heb): {pointing_dict.get(heb)}")
+                                        print(f" |__[raw]  line[pointing_dict.get(heb)]: {line[pointing_dict.get(heb)]}")
+                                        print(f" |[raw] data selection data {line[pointing_dict.get(heb)]} in list: {st.session_state.selections.get(eng)} and {_all} in {st.session_state.selections.get(eng)}")
+                                        print(f" |___[raw] condition check {line[pointing_dict.get(heb)]} in list: {st.session_state.selections.get(eng)} result: {line[pointing_dict[heb]] in st.session_state.selections[eng]}")
+                                        print(f" |___[raw] condition check {_all} in {st.session_state.selections.get(eng)} result: {_all in st.session_state.selections[eng]}")
+
+                                        if line[pointing_dict[heb]]:
+                                            if all([_all not in st.session_state.selections[eng], line[pointing_dict[heb]] not in st.session_state.selections[eng]]):
+                                                flag = False
+
+                                            break
+                                    print(f" |[raw] flag = {flag} result applied")
+                                    print(" |[raw] inserting the end point data ...")
+                                    if flag:
+                                        print(f" |[raw] iteration flag value is {flag}")
+                                        print(f" |[raw] testing main_raw_data_frame structure ... ")
+                                        print("-----------------------------")
+                                        for item, value in st.session_state.main_raw_data_frame.items():
+                                            print(f" key: {item} : {value}")
+                                        print(" example:")
+                                        print(st.session_state.main_raw_data_frame.get('זיקים'))
+                                        print(st.session_state.main_raw_data_frame['זיקים'].get('ערד'))
+                                        print("-----------------------------")
+
                                         st.session_state.main_raw_data_frame[settlement_name][line[0]] = {}
-                                        st.session_state.main_raw_data_frame[settlement_name][line[0]][key]= converting_raw_data_to_numeric(line[pointing_dict[key]])
 
-
-
-
-
-                        print(" |[raw start of data: ----------")
-                        print(settlement_data)
-                        print(" |[raw end of data: -----------")
-                        results.append(settlement_data)
+                                        for key in ep_data_frame:
+                                            print(f" |[raw] key: {key}")
+                                            print(f" |[raw] pointing_dict[key]: {pointing_dict[key.strip()]}")
+                                            # print(f" |[raw] line[pointing_dict[key]]: {line[pointing_dict[key.strip()]]}")
+                                            # print(f" |[raw] inserting data of key: {key} data: {converting_raw_data_to_numeric(line[pointing_dict[key.strip()]])}")
+                                            try:
+                                                print(" |__[raw] attmptting key adaptation block .... ")
+                                                st.session_state.main_raw_data_frame[settlement_name][line[0]][key.strip()] = converting_raw_data_to_numeric(line[pointing_dict[key.strip()]])
+                                            except KeyError:
+                                                st.session_state.main_raw_data_frame[settlement_name][line[0]][
+                                                    key.strip()] = converting_raw_data_to_numeric(
+                                                    line[pointing_dict[key + ' ']])
 
                     except Exception as e:
-                        print(f"- exception: {e}")
+                        print(f"-frame block exception: {e} ")
+                        traceback.print_exc()
 
-                if st.session_state.data_view_options_raw == "שעונים":
-                    pass
-                elif st.session_state.data_view_options_raw == "פיזור":
-                    pass
-                else:
-                    # heat map
-                    pass
+        # for item, value in st.session_state.main_raw_data_frame.items():
+        #     if not value:
+        #         st.session_state.main_raw_data_frame.pop(item)
 
+            _val = 'מדד'
+            print(f" |[raw] chosed presentation level: {st.session_state.data_view_options_raw}")
+            if True:
+                max_cols = 4
+                rows = 0
+                cols = 0
+                grid = make_grid(max_cols, max_rows)
+                st.session_state.avarages_data_set = {}
+                print(f" |[raw] inserting parameters in clocks function ...")
+                round_cnt = 0
+                for item, comp in st.session_state.main_raw_data_frame.items():
+                    if comp:
+                        st.session_state.hm_data_frame_raw_cols.append(item)
+                        print(f" |[raw] {item} is not empty, inserting its endpoint data")
+                        temp = []
+                        for criteria, parameters in comp.items():
+                            if round_cnt == 0:
+                                st.session_state.hm_data_frame_raw_rows.append(criteria)
+                                print(f" |[raw] heat map rows criteria: {criteria} added || actual the last value:  {st.session_state.hm_data_frame_raw_rows[0]}")
+                            print(f" |[raw] the data dict of {criteria} is:  {parameters}")
+                            print(f" |[raw] criteria: {criteria}: value of {_val} is {parameters.get(_val)}")
+                            if  st.session_state.avarages_data_set.get(criteria):
+                                st.session_state.avarages_data_set[criteria] += parameters[_val]
+                                temp.append(parameters[_val])
+                                print(f" |[raw] heat map temp list : {temp}")
+                            else:
+                                st.session_state.avarages_data_set[criteria] = parameters[_val]
+                                temp.append(parameters[_val])
+                                print(f" |[raw] heat map temp list : {temp}")
+
+                        st.session_state.hm_data_frame_raw_data.append(temp)
+                        print(f" |[raw] heat map data matrix : {st.session_state.hm_data_frame_raw_data}")
+                    round_cnt += 1
+
+                for criteria, total_sum in  st.session_state.avarages_data_set.items():
+                    st.session_state.avarages_data_set[criteria] = total_sum / len(st.session_state.main_raw_data_frame)
+
+            if st.session_state.data_view_options_raw == "שעונים":
+                for title, value in  st.session_state.avarages_data_set.items():
+                    with grid[rows][cols]:
+                        try:
+                            make_gauge_graph(title, value)
+                        except KeyError as e:
+                            print(f" --- Exceptoion KeyError as {e} of: {criteria}")
+
+                    if cols == max_cols - 1:
+                        cols = 0
+                        rows += 1
+                    else:
+                        cols += 1
+
+            elif st.session_state.data_view_options_raw == "פיזור":
+                show_spider_chart( st.session_state.avarages_data_set,"פיזור")
+            else:
+                # heat map
+                print(f" |[raw] heat map - data {st.session_state.hm_data_frame_raw_data}")
+                print(f" |[raw] heat map - cols {st.session_state.hm_data_frame_raw_cols}")
+                print(f" |[raw] heat map - rows {st.session_state.hm_data_frame_raw_rows}")
+                print()
+                show_status_heat_map(st.session_state.hm_data_frame_raw_data,
+                                     st.session_state.hm_data_frame_raw_cols,
+                                     st.session_state.hm_data_frame_raw_rows,
+                                     "מפת חום")
+                pass
+    print(" |[raw] ###############################  End debugging Segment ###############################")
 
 
 
@@ -458,8 +579,7 @@ with tab3:
             for attr, value in data_frame.items():
                 with grid[rows][cols]:
                     make_gauge_graph(attr, value)
-                    if st.session_state.data_view_options == "מפת חום":
-                        pass
+
                 if cols == max_cols - 1 :
                     cols = 0
                     rows += 1
@@ -473,7 +593,60 @@ with tab3:
             col_names = st.session_state.attributes
             show_status_heat_map(st.session_state.hm_data_frame, col_names, row_names, "מפת חום")
 
+with tab4:
+    sub_tab_performence_detailed, sub_tab_performence_model = st.tabs(["לפי קריטריון", "לפי מודל"])
+    with sub_tab_performence_detailed:
+        with st.form(key="data_analysis_perf", width="stretch"):
+            with st.expander("בחירת מדדים"):
+                with st.container():
+                    col_a, col_b, col_c ,col_d = st.columns(4)
+                    with col_a:
+                        with st.container():
+                            st.title("בחירת טווח")
+                            filtering("main", "performence_data_analysis_filter_chbx")
+                            filtering("settlements", "performence_settlements_chbx")
+                    with col_b:
+                        with st.container():
+                            st.title("בחירת קרטריונים")
+                            filtering("selections", "performence_selections_chbx")
+                        with st.container():
+                            filtering("criteria", "performence_criteria_chbx")
+                    with col_c:
+                        with st.container():
+                            st.title("מאזן כוח")
+                            filtering("values", "performence_values_chbx")
+                    with col_d:
+                        place_vertical_spacer(15)
+                        st.form_submit_button("טען", key="width_data_perf")
 
+
+
+               #  ###############  definitions #################
+                with st.container():
+                    sscol_freind, sscol_enemy = st.columns(2)
+                    with sscol_freind:
+                        pass
+                    with sscol_enemy:
+                        pass
+
+
+                #  ###############  results #################
+
+
+    with sub_tab_performence_model:
+        with st.form(key="data_analysis_model_perf", width="stretch"):
+            with st.expander("פילטר ראשי"):
+                with st.container():
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        filtering("main", "data_analysis_filter_model_chbx_perf")
+                        filtering("settlements","settlements_model_chbx_perf")
+                    with col_b:
+                        filtering("model", "selections_model_perf")
+                    with col_c:
+                        filtering("values", "values_model_chbx_perf")
+                        place_vertical_spacer(15)
+                        st.form_submit_button("טען", key="d_model_perf")
 
 
 
