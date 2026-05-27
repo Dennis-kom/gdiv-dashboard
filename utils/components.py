@@ -1,17 +1,14 @@
 from random import random
-
 import streamlit as st
 import plotly.graph_objects as go
-import streamlit as st
 import folium
-from typing import Dict
+from typing import Dict, List
 from streamlit_folium import st_folium
-import pandas as pd
 from utils.gsheets_auth import GoogleSheetsAuth
 from variables.static import InternalGoogleSheetVars
-import numpy as np
-import plotly.express as px
 
+
+logs_tag = "|[component]:: "
 statuses_values_dict = {"תקין": 1,
                         "לא תקין\חסר": 0,
                         "בהקמה": 0.5,
@@ -28,6 +25,8 @@ class LocalDataEntry:
     data_sheet = spreadsheet.get_worksheet(InternalGoogleSheetVars.mbt_spreadsheet_name,
                                       InternalGoogleSheetVars.main_data_worksheet_name)
 
+def log(message:str):
+    print(f"{logs_tag} {message}")
 
 def status_badge(text, color_type="success"):
 
@@ -215,7 +214,7 @@ def show_settlement_data_table(settlment_name):
     }])
 
     # הצגת הטבלה המעוצבת
-    st.dataframe(styled_df, use_container_width=True)
+    st.dataframe(styled_df, width='stretch')
 
 
 def show_detailed_calculeted_table(settlement_name):
@@ -236,18 +235,7 @@ def show_detailed_calculeted_table(settlement_name):
 
 
     _all = 'הכל'
-    # st.session_state.options = {
-    #     'status': ['הכל', 'תקין', 'בהקמה', 'לא תקין\חסר', 'בטיפול'],
-    #     'action': ['הכל', 'TRUE', 'FALSE'],
-    #     'types': ['אישי', 'מסגרתי', 'הכל'],
-    #     'frame': ['הכל', 'מחלקת הגנה', 'ישוב', 'צח"י', 'פרויקטים'],
-    #     'domain': ['הכל', '-', 'ציוד', 'תשתית', 'כוח אדם'],
-    #     'economy': ['הכל', 'הגנה ישובית', 'צל"מ', 'תחמושת', 'ציוד לוגיסטי', 'אמסל"ח', 'עמדות', 'רכב', 'חמ"ל',
-    #                 'הצטיידות','-'],
-    #     'model': ['הכל', 'סטטי איוש', 'מדד ציוד רפואי', 'אגד אמסל"ח', 'מדד לוגיסטי אמסל"ח אישי',
-    #               'מדד לוגיסטי אמסל"ח מסגרתי', 'אגד צל"מ', 'מדד מב"ט מתקדם', 'מדד לוגיסטי חמ"ל', 'מדד לוגיסטי צח"י'],
-    #     'family': ['הכל', 'מב"ט בסיסי', 'נשק אישי', 'כוונות', 'אמר"ל', 'אט"ל', 'וסט', 'קסדה', 'מענ"ש', 'מיגון', 'רפואה',
-    #                'מב"ט מתקדם', 'תקשוב', 'רחפן']}
+
 
     all_shortcut = st.checkbox('הצג הכל')
     default_val = ['הכל'] if all_shortcut else None
@@ -378,7 +366,7 @@ def show_spider_chart(data_frame: Dict,index: str):
         polar=dict(
             radialaxis=dict(
                 visible=True,
-                range=[0, 100]  # מגדיר את גבולות הגרף
+                range=[0, 100]
             )
         ),
         showlegend=True,
@@ -389,14 +377,14 @@ def show_spider_chart(data_frame: Dict,index: str):
 
 
 def show_heat_map(matrix_data_frame: list, index: str):
-    # יצירת נתונים לדוגמה (למשל: ימים בשבוע מול שעות ביום)
+
     dim = len(matrix_data_frame)
     df = pd.DataFrame(matrix_data_frame, columns=[f"עמודה {i}" for i in range(dim)])
-    # יצירת מפת החום
+
     fig = px.imshow(df,
-                    text_auto=True,  # מציג את המספרים בתוך המשבצות
+                    text_auto=True,
                     aspect="auto",
-                    color_continuous_scale='Viridis',  # סקאלת צבעים
+                    color_continuous_scale='Viridis',
                     title=index)
     st.plotly_chart(fig, width='stretch')
 
@@ -445,7 +433,7 @@ def show_status_heat_map(matrix_data: list, row_names: list, col_names: list, ti
         font=dict(size=14)
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 # --- דוגמה לשימוש ---
@@ -469,3 +457,143 @@ def place_vertical_spacer(dim: int):
 
 def show_table():
     pass
+
+
+def show_table_with_battery_(data_frame: list, titles: list, battery_column: str = None, battery_title: str = "מדד"):
+    df = pd.DataFrame(data_frame, columns=titles)
+
+    source_col = battery_column if battery_column in df.columns else titles[-1]
+
+    def _to_number(v):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return float(v)
+        if isinstance(v, str):
+            s = v.strip().rstrip('%').replace(',', '').strip()
+            try:
+                return float(s)
+            except ValueError:
+                return 0.0
+        return 0.0
+
+    df[battery_title] = df[source_col].apply(_to_number)
+
+    st.dataframe(
+        df,
+        column_config={
+            battery_title: st.column_config.ProgressColumn(
+                battery_title,
+                min_value=0,
+                max_value=100,
+                format="%.0f%%",
+            )
+        },
+        use_container_width=True,
+        hide_index=True,
+    )
+# Helper function to parse percentages safely
+def parse_percentage_string(val):
+    if pd.isna(val) or not str(val).strip():
+        return 0.0
+    val_str = str(val).replace('%', '').strip()
+    try:
+        num = float(val_str)
+        if '%' in str(val):
+            return num / 100.0
+        return num
+    except ValueError:
+        return 0.0
+
+def show_table_with_battery(data_rows, headers, target_col_name='מדד משוקלל', display_col_name='מדד משוקלל'):
+    """
+    Renders a clean Streamlit dataframe using native ProgressColumn
+    for visual metric representation.
+    """
+    # 1. יצירת הדאטה פריים וניקוי רווחים מהכותרות
+    cleaned_headers = [str(h).strip() for h in headers]
+    df = pd.DataFrame(data_rows, columns=cleaned_headers)
+
+    target_col = str(target_col_name).strip()
+
+    # 2. ניקוי שורות ריקות ושורת סיכום
+    if 'קריטריון' in df.columns:
+        df = df[df['קריטריון'].str.strip() != '']
+        df = df[df['קריטריון'].str.strip() != 'משוקלל']
+
+    df = df.drop(columns=[''], errors='ignore')
+
+    # 3. המרת העמודה למספר עשרוני (Float בין 0.0 ל-1.0)
+    if target_col in df.columns:
+        df[target_col] = df[target_col].apply(parse_percentage_string)
+    else:
+        st.dataframe(df, hide_index=True)
+        return
+
+    # 4. הגדרת עמודת הפרוגרס-בר הרשמית של Streamlit
+    # המנגנון המובנה הזה מציג פס התקדמות יפה מ-0% עד 100% ישירות בתא
+    column_configuration = {
+        target_col: st.column_config.ProgressColumn(
+            label=target_col,
+            help="מדד משוקלל לקריטריון",
+            format="%.0f%%",  # מציג את המספר כאחוז (למשל 0.77 יוצג כ-77%)
+            min_value=0.0,
+            max_value=1.0,
+        )
+    }
+
+    # 5. הצגת הטבלה היחידה ב-Streamlit
+    st.dataframe(
+        df,
+        column_config=column_configuration,
+        hide_index=True
+    )
+def present_model_components_table(settlement_name: str, keys: List, ranges=None, add_data=None):
+    local_dict = {'רפואה - אמבולנס':"אמבולנס ממוגן",
+                  'רפואה - ציוד':"מדד ציוד רפואי",}
+    first_seperator = ["אמבולנס"]
+    second_seperator = []
+
+    log("*************************** Testing segment ************************************")
+    if ranges is None:
+        ranges = []
+    for index, k_range in enumerate(keys):
+        model_table = []
+        try:
+            if k_range in local_dict.keys():
+                model_table = LocalDataEntry.spreadsheet.get_worksheets_range(
+                    InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name,
+                    ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[local_dict[k_range]])
+            elif k_range == 'מחלקות הגנה - כשירות':
+                log(f"add_data {add_data}")
+                with st.container():
+                    st.write(f"{add_data}  כשירות מחלקת הגנה: ")
+
+            else:
+                print(f" {logs_tag} range to invoke: {InternalGoogleSheetVars.settlements_models_ranges[k_range]} with key {k_range} ranges: {ranges}")
+                model_table = LocalDataEntry.spreadsheet.get_worksheets_range(InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name, ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[k_range]
+            )
+            #print(f"{logs_tag} model_table: \n ---------------------- {model_table}  \n ---------------------- \n")
+        except Exception as e:
+            log(f"\nError revoked from key: {k_range} reading table from file - failed!\n")
+            st.error(f" {k_range}: {e}")
+            log(f"Error says {e}")
+
+        #log(f"checking models table is not null =  {len(model_table)}")
+        if model_table:
+            log(f" **** **** model_table with len {len(model_table)} accepted with key {k_range}....")
+            log(f" **** **** k condition { any([True if "אמבולנס" in k else False for k in k_range])} accepted with key {k_range}")
+            if any([True if "אמבולנס" in k else False for k in k_range]) :
+
+                data = model_table[1:]
+                log(f"\n >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> \n")
+                log(f"data: {data}")
+                st.write(data)
+                headers = model_table[0]
+                df = pd.DataFrame(data, columns=headers)
+                st.subheader(k_range)
+                st.dataframe(df, hide_index=True)
+            else:
+                show_table_with_battery(model_table[1:], model_table[0], 'מדד משוקלל', 'מדד משוקלל')
+
+
+
+

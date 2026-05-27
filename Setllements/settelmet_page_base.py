@@ -2,21 +2,22 @@ import streamlit as st
 from utils.components import show_settlement_map, show_settlement_data_table, make_gauge_graph, \
     self_search_make_gauge_graph, show_detailed_calculeted_table, show_detailed_badged_table
 from variables.static import InternalGoogleSheetVars
-from Setllements.settlement_details_frame import present_single_settlement_details
-
+from Setllements.settlement_details_frame import present_single_settlement_details, get_qualification_data
 
 
 class PageBase:
     def __init__(self, settlement_name):
         self.settlement_name = settlement_name
         self.tab1, self.tab2 = st.tabs([f"{st.session_state.settlement_name} מבט כללי", "מרכיבי בטחון מחושבים"])
-
+        # self.qualification_data = get_qualification_data(settlement_name)
         self.page_present()
 
     def page_present(self):
 
         # the main SO
         with self.tab1:
+
+            # print("self.qualification_data", self.qualification_data)
             col1, col2, col3 = st.columns(3)
             # primary settlment representation
             with col1:

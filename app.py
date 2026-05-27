@@ -1,9 +1,9 @@
 import streamlit as st
-from utils.gsheets_auth import GoogleSheetsAuth
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
-from utils.components import status_badge, StatusBadgeValues, show_simple_bar_chart
+from utils.components import status_badge, show_simple_bar_chart
+from utils.data_source import sheet
 from variables.static import InternalGoogleSheetVars
 
 # right alignment to all the text in the page
@@ -33,9 +33,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
-spreadsheet = GoogleSheetsAuth()
-sheet = spreadsheet.get_worksheet(InternalGoogleSheetVars.mbt_spreadsheet_name, InternalGoogleSheetVars.main_data_worksheet_name)
 _all= 'הכל'
 st.title(InternalGoogleSheetVars.mbt_spreadsheet_name)
 

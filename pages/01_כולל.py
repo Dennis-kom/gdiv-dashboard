@@ -3,14 +3,14 @@ from streamlit_folium import st_folium
 import folium
 import branca
 import plotly.graph_objects as go
+import pandas as pd
 import traceback
-from utils.gsheets_auth import GoogleSheetsAuth
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.components import status_badge, make_gauge_graph, make_grid, LocalDataEntry, place_vertical_spacer, \
-    show_spider_chart, show_heat_map, show_status_heat_map
+    show_spider_chart, show_status_heat_map
 from variables.static import InternalGoogleSheetVars
-from app import sheet
-import logging
+from utils.data_source import sheet
+from utils.calculations import modeling_elements_names, StochasticModeling
 # settlements_data
 st.set_page_config(layout="wide")
 st.set_page_config(page_title="מבט כולל כל הישובים")
@@ -26,8 +26,8 @@ st.session_state.types = ['הכל', 'סמוך', 'ליבה', 'ליבה קדמי']
 st.session_state.distances = ['הכל', '7+', '4-7', '0-4']
 st.session_state.settlements = ['הכל'] + list(InternalGoogleSheetVars.settlements_data.keys())
 st.session_state.val_selections =  ['הכל'] + ["0-30", "30-50", "50-90", "90-100"]
-st.sessiom_state.precents = ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100", "110", "120", "130", "140", "150"]
-st.sessiom_state.probability = ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"]
+st.session_state.precents = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%"]
+st.session_state.probability = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"]
 st.session_state.data_view_selector = "raw"
 st.session_state.models_list = [mod  for mod in InternalGoogleSheetVars.options['model'] if "מדד" in mod] + ["מדד נץ"]
 
@@ -43,7 +43,7 @@ def converting_raw_data_to_numeric(data: str):
         return status_translator.get(data, 0) # default to 0 if status not found
 
 
-def filtering(filter_type: str,key="default"):
+def filtering(filter_type: str,key="default", iterator = None):
 
     match filter_type:
         case "main":
@@ -91,9 +91,15 @@ def filtering(filter_type: str,key="default"):
             data_load_measure_state["load_stack"] += 1 if all_shortcut else 0
             st.session_state.criteria_selections = st.multiselect("קריטריונים", InternalGoogleSheetVars.options['criteria'] + ['הכל'], default=default_val)
         case "precents":
-            st.session_state.precents_selections  = st.selectbox("אחוזים", st.sessiom_state.precents)
+            if iterator:
+                st.session_state.precents_selections =  { key: st.selectbox(key, st.session_state.precents) for key in iterator}
+            else:
+                st.session_state.precents_selections  = st.selectbox("אחוזים", st.session_state.precents)
         case "probability":
-            st.session_state.probability_selections = st.electbox("הסתברות", st.sessiom_state.probability)
+            if iterator:
+                st.session_state.probability_selections = {key: st.selectbox("הסתברות"+" "+key, st.session_state.probability) for key in iterator }
+            else:
+                st.session_state.probability_selections = st.selectbox("הסתברות", st.session_state.probability)
         case _:
             pass
 
@@ -594,60 +600,239 @@ with tab3:
             show_status_heat_map(st.session_state.hm_data_frame, col_names, row_names, "מפת חום")
 
 with tab4:
-    sub_tab_performence_detailed, sub_tab_performence_model = st.tabs(["לפי קריטריון", "לפי מודל"])
-    with sub_tab_performence_detailed:
-        with st.form(key="data_analysis_perf", width="stretch"):
-            with st.expander("בחירת מדדים"):
-                with st.container():
-                    col_a, col_b, col_c ,col_d = st.columns(4)
-                    with col_a:
-                        with st.container():
-                            st.title("בחירת טווח")
-                            filtering("main", "performence_data_analysis_filter_chbx")
-                            filtering("settlements", "performence_settlements_chbx")
-                    with col_b:
-                        with st.container():
-                            st.title("בחירת קרטריונים")
-                            filtering("selections", "performence_selections_chbx")
-                        with st.container():
-                            filtering("criteria", "performence_criteria_chbx")
-                    with col_c:
-                        with st.container():
-                            st.title("מאזן כוח")
-                            filtering("values", "performence_values_chbx")
-                    with col_d:
-                        place_vertical_spacer(15)
-                        st.form_submit_button("טען", key="width_data_perf")
+    st.session_state.model_definition_list = [itm for itm in InternalGoogleSheetVars.options['model'] if 'מדד' in itm and 'מאג' not in itm and 'ציוד לוגיסטי' not in itm ]
+    with st.form(key="operations_research_form", width="stretch"):
+        with st.expander("הגדרות מודל סטוכסטי"):
+            with st.container():
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.write("")
+                    filtering("main", "or_main_filter_chbx")
+                    filtering("settlements","or_settlements_chbx")
+                with col_b:
+                    st.write("אחוזי השוואה")
+                    filtering("precents", "or_precents_chbx", iterator=st.session_state.model_definition_list)
+                    # filtering("criteria", "or_criteria_chbx")
+                with col_c:
+                    st.write("הסתברות")
+                    filtering("probability","or_prob_chbx",iterator=st.session_state.model_definition_list)
+                    st.form_submit_button("טען", key="or_btn")
+
+
+        if data_load_measure_state["load_stack"] == data_load_measure_state["max_load"]:
+            st.toast("שימ/י לב כי כל הנתונים נבחרו להצגה הצגת הנתונים עלולה לקחת זמן רב! ")
+        st.session_state.stochastic_data_frame = {}
+        st.session_state.inverted_data_frame = {}
+        st.session_state.settlement_list = []
+
+        def _parse_numeric_percent(value):
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                cleaned = value.strip().replace("%", "")
+                try:
+                    return float(cleaned)
+                except ValueError:
+                    return 0.0
+            return 0.0
+
+        with st.container():
+            with st.spinner("מבצע חקר ביצועים ..."):
+                selected_settlements = (
+                    list(InternalGoogleSheetVars.settlements_data.keys())
+                    if _all in st.session_state.settlements_selections
+                    else st.session_state.settlements_selections
+                )
+
+                for settlement in selected_settlements:
+                    settlement_meta = InternalGoogleSheetVars.settlements_data.get(settlement) or {}
+                    division = settlement_meta.get("division", "")
+                    council = settlement_meta.get("council", "")
+                    settlement_type = settlement_meta.get("type", settlement_meta.get("classification", ""))
+                    distance = settlement_meta.get("distance", "")
+
+                    if (division in st.session_state.filters["division"] or _all in st.session_state.filters["division"]):
+                        if (council in st.session_state.filters["council"] or _all in st.session_state.filters["council"]):
+                            if (settlement_type in st.session_state.filters["type"] or _all in st.session_state.filters["type"]):
+                                if (distance in st.session_state.filters["distance"] or _all in st.session_state.filters["distance"]):
+                                    st.session_state.settlement_list.append(settlement)
+
+                settlement_rows = [
+                    line for line in LocalDataEntry.data_sheet
+                    if line.get("ישוב") in st.session_state.settlement_list
+                ]
+
+                if not settlement_rows:
+                    st.warning("לא נמצאו ישובים תואמים עבור חישוב המודל")
+                else:
+                    for key, comps in InternalGoogleSheetVars.pivot_parameters_names.items():
+                        per_settlement_averages = []
+                        for settlement_details in settlement_rows:
+                            comp_values = [
+                                converting_raw_data_to_numeric(str(settlement_details.get(comp, "0")))
+                                for comp in comps
+                            ]
+                            if comp_values:
+                                per_settlement_averages.append(sum(comp_values) / len(comp_values))
+
+                        average_value = (
+                            sum(per_settlement_averages) / len(per_settlement_averages)
+                            if per_settlement_averages else 0.0
+                        )
+                        st.session_state.stochastic_data_frame[key] = [average_value]
+
+                    for key, value in st.session_state.precents_selections.items():
+                        if key in st.session_state.stochastic_data_frame:
+                            st.session_state.stochastic_data_frame[key].append(_parse_numeric_percent(value))
+
+                    for key, value in st.session_state.probability_selections.items():
+                        if key in st.session_state.stochastic_data_frame:
+                            st.session_state.stochastic_data_frame[key].append(_parse_numeric_percent(value))
 
 
 
-               #  ###############  definitions #################
-                with st.container():
-                    sscol_freind, sscol_enemy = st.columns(2)
-                    with sscol_freind:
-                        pass
-                    with sscol_enemy:
-                        pass
+                    # Adapt UI payload to [weight, probability] expected by the stochastic model.
+                    model_input = {}
+                    for metric_name, raw_values in st.session_state.stochastic_data_frame.items():
+                        if metric_name not in modeling_elements_names:
+                            print(f" |[model] skipping unsupported modeling key: {metric_name}")
+                            continue
+                        avg_value = float(raw_values[0]) if len(raw_values) > 0 else 0.0
+                        weight_value = float(raw_values[1]) if len(raw_values) > 1 else avg_value
+                        probability_value = float(raw_values[2]) if len(raw_values) > 2 else 0.0
+                        model_input[metric_name] = [weight_value, probability_value]
 
+                    if not model_input:
+                        st.warning("לא נמצאו מפתחות נתמכים עבור מודל סטוכסטי מתוך הקלט שנבחר")
+                        st.stop()
 
-                #  ###############  results #################
+                    s = StochasticModeling(model_input, settlements_count=max(1, len(st.session_state.settlement_list)))
+                    resolved = s.resolve()
 
+                    def _to_battery_percent(value):
+                        if isinstance(value, (int, float)):
+                            numeric_value = float(value)
+                            if 0 <= numeric_value <= 1:
+                                numeric_value *= 100
+                            return max(0.0, min(100.0, numeric_value))
+                        return 0.0
 
-    with sub_tab_performence_model:
-        with st.form(key="data_analysis_model_perf", width="stretch"):
-            with st.expander("פילטר ראשי"):
-                with st.container():
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        filtering("main", "data_analysis_filter_model_chbx_perf")
-                        filtering("settlements","settlements_model_chbx_perf")
-                    with col_b:
-                        filtering("model", "selections_model_perf")
-                    with col_c:
-                        filtering("values", "values_model_chbx_perf")
-                        place_vertical_spacer(15)
-                        st.form_submit_button("טען", key="d_model_perf")
+                    rows = []
+                    for key, value in resolved.items():
+                        if isinstance(value, dict):
+                            for sub_key, sub_val in value.items():
+                                rows.append({
+                                    "שם": f"{key}.{sub_key}",
+                                    "ערך": round(float(sub_val), 4) if isinstance(sub_val, (int, float)) else str(sub_val),
+                                    "מדד ביחס ל-100%": _to_battery_percent(sub_val),
+                                })
+                        else:
+                            rows.append({
+                                "שם": key,
+                                "ערך": round(float(value), 4) if isinstance(value, (int, float)) else str(value),
+                                "מדד ביחס ל-100%": _to_battery_percent(value),
+                            })
 
+                    result_df = pd.DataFrame(rows, columns=["שם", "ערך", "מדד ביחס ל-100%"])
+                    st.dataframe(
+                        result_df,
+                        width="stretch",
+                        hide_index=True,
+                        column_config={
+                            "מדד ביחס ל-100%": st.column_config.ProgressColumn(
+                                "גרף סוללה",
+                                min_value=0,
+                                max_value=100,
+                                format="%.1f%%",
+                            )
+                        },
+                    )
 
+                    overall_score = float(resolved.get("overall_score", 0.0))
+                    if overall_score < 50:
+                        badge_bg = "#FFC7CE"
+                        badge_fg = "#9C0006"
+                        result_text = "לא מצליח לעמוד במשימת ההגנה"
+                    elif overall_score < 90:
+                        badge_bg = "#FFEB9C"
+                        badge_fg = "#9C6500"
+                        result_text = "בסיכון לעמידה במשימת ההגנה"
+                    else:
+                        badge_bg = "#C6EFCE"
+                        badge_fg = "#006100"
+                        result_text = "מצליח לעמוד במשימת ההגנה"
 
+                    chart_keys = list(model_input.keys())
+                    actual_coverage = [
+                        max(0.0, min(100.0, float(st.session_state.stochastic_data_frame.get(key, [0.0])[0])))
+                        for key in chart_keys
+                    ]
+                    adjusted_coverage = []
+                    for key in chart_keys:
+                        raw_values = st.session_state.stochastic_data_frame.get(key, [0.0])
+                        base_value = float(raw_values[0]) if len(raw_values) > 0 else 0.0
+                        percent_value = float(raw_values[1]) if len(raw_values) > 1 else 100.0
+                        adjusted_coverage.append(max(0.0, min(100.0, base_value * (percent_value / 100.0))))
+
+                    summary_col_left, summary_col_right = st.columns(2)
+
+                    with summary_col_left:
+                        with st.container(border=True):
+                            st.markdown("### תוצאת חקר ביצועים")
+                            st.markdown(
+                                f"""
+                                <div style=\"text-align:center; margin-top:10px;\"> 
+                                    <div style=\"
+                                        display:inline-block;
+                                        min-width:260px;
+                                        padding:10px 18px;
+                                        border-radius:24px;
+                                        background:{badge_bg};
+                                        color:{badge_fg};
+                                        font-weight:bold;
+                                        font-size:22px;
+                                    \">
+                                        {overall_score:.1f}%
+                                    </div>
+                                    <div style=\"margin-top:10px; font-size:16px;\">{result_text}</div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                    with summary_col_right:
+                        with st.container(border=True):
+                            st.markdown("### גרף עכביש - כיסוי מול כיסוי מותאם")
+                            if chart_keys:
+                                spider_categories = chart_keys + [chart_keys[0]]
+                                actual_closed = actual_coverage + [actual_coverage[0]]
+                                adjusted_closed = adjusted_coverage + [adjusted_coverage[0]]
+
+                                spider_fig = go.Figure()
+                                spider_fig.add_trace(
+                                    go.Scatterpolar(
+                                        r=actual_closed,
+                                        theta=spider_categories,
+                                        fill="toself",
+                                        name="כיסוי בפועל",
+                                            line=dict(color="royalblue"),
+                                    )
+                                )
+                                spider_fig.add_trace(
+                                    go.Scatterpolar(
+                                        r=adjusted_closed,
+                                        theta=spider_categories,
+                                        fill="toself",
+                                        name="כיסוי לאחר הכפלה באחוזים",
+                                            line=dict(color="darkorange"),
+                                    )
+                                )
+                                spider_fig.update_layout(
+                                    polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                                    showlegend=True,
+                                    margin=dict(l=30, r=30, t=30, b=30),
+                                )
+                                st.plotly_chart(spider_fig, use_container_width=True)
+                            else:
+                                st.info("אין נתונים להצגת גרף עכביש")
 
