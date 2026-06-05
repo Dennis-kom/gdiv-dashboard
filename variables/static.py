@@ -2,6 +2,7 @@
 
 
 class InternalGoogleSheetVars:
+    messages = {"no_data":"אין נתונים להצגה", "error": "שגיאה בהצגת נתונים"}
     mbt_spreadsheet_name = "מרכיבי בטחון "
     main_data_worksheet_name = "נתונים"
     coordinates = {"בארי": [31.424206382928336, 34.49117105006067],

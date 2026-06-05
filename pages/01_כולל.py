@@ -5,12 +5,15 @@ import branca
 import plotly.graph_objects as go
 import pandas as pd
 import traceback
+from pathlib import Path
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.components import status_badge, make_gauge_graph, make_grid, LocalDataEntry, place_vertical_spacer, \
     show_spider_chart, show_status_heat_map
 from variables.static import InternalGoogleSheetVars
 from utils.data_source import sheet
 from utils.calculations import modeling_elements_names, StochasticModeling
+from app import st, logging
 # settlements_data
 st.set_page_config(layout="wide")
 st.set_page_config(page_title="מבט כולל כל הישובים")
@@ -30,6 +33,14 @@ st.session_state.precents = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70
 st.session_state.probability = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"]
 st.session_state.data_view_selector = "raw"
 st.session_state.models_list = [mod  for mod in InternalGoogleSheetVars.options['model'] if "מדד" in mod] + ["מדד נץ"]
+
+def log_pref(locations= None, message = None):
+    setter = ""
+    if locations:
+        for key, itm in locations.items():
+            setter += f"{key} - {itm}, "
+
+    return f"{Path(__file__).name} {setter}  LOG:: {message}"
 
 def converting_raw_data_to_numeric(data: str):
     if "%" in data:
@@ -103,13 +114,16 @@ def filtering(filter_type: str,key="default", iterator = None):
         case _:
             pass
 
+def is_passing_basic_filter():
+    return all([len({tab_line['חטיבה'], _all}.intersection(st.session_state.filters['division'])) > 0, len({tab_line['מועצה'], _all}.intersection(st.session_state.filters['council'])) > 0, len({tab_line['סיווג'], _all}.intersection(st.session_state.filters['type'])) > 0, len({tab_line['מרחק מהגדר'], _all}.intersection(st.session_state.filters['distance'])) > 0])
  # st.session_state.filters_local_memory = InternalGoogleSheetVars.settlements_data
 # with st.expander("פילטר ראשי"):
 
 
 tab1, tab2, tab3, tab4 = st.tabs(["מטריצת מדדים", "מפה", "ניתוח רוחבי", "חקר ביצועים"])
 
-with tab1:
+# scores matrix
+with (tab1):
     with st.form(key="main details", width="stretch"):
         with st.expander("פילטר ראשי"):
             with st.container():
@@ -131,12 +145,9 @@ with tab1:
 
         for line in sheet:
             tab_line = line
-            if ((tab_line['חטיבה'] in st.session_state.filters['division'] or _all in st.session_state.filters['division']) and
-                    (tab_line['מועצה']  in st.session_state.filters['council'] or _all in st.session_state.filters['council']) and
-                    (tab_line['סיווג'] in st.session_state.filters['type'] or _all in st.session_state.filters['type']) and
-                    (tab_line['מרחק מהגדר'] in st.session_state.filters['distance'] or _all in st.session_state.filters['distance'])):
+            if is_passing_basic_filter():
                 val = float(tab_line["מדד כולל"][:-1])
-                # st.session_state.amount += 1
+
                 with grid[rows][cols]:
 
                     make_gauge_graph(tab_line["ישוב"], val)
@@ -150,7 +161,7 @@ with tab1:
                     rows += 1
                 else:
                     cols += 1
-
+# map
 with tab2:
     with st.form(key="set_map_details", width="stretch"):
         with st.expander("פילטר ראשי"):
@@ -168,16 +179,14 @@ with tab2:
             return fig.to_html(include_plotlyjs='cdn', full_html=False)
 
 
-        # @st.cache_data
-        # def expose_int_map():
         m = folium.Map(location=[31.47, 34.52], zoom_start=11)
-
+        logging.info("running filter")
         for line in sheet:
             tab_line = line
-            if ((tab_line['חטיבה'] in st.session_state.filters['division'] or _all in st.session_state.filters['division']) and
-                    (tab_line['מועצה']  in st.session_state.filters['council'] or _all in st.session_state.filters['council']) and
-                    (tab_line['סיווג'] in st.session_state.filters['type'] or _all in st.session_state.filters['type']) and
-                    (tab_line['מרחק מהגדר'] in st.session_state.filters['distance'] or _all in st.session_state.filters['distance'])):
+            if all([len({tab_line['חטיבה'], _all}.intersection(st.session_state.filters['division'])) > 0,
+                    len({tab_line['מועצה'], _all}.intersection(st.session_state.filters['council'])) > 0,
+                    len({tab_line['סיווג'], _all}.intersection(st.session_state.filters['type'])) > 0,
+                    len({tab_line['מרחק מהגדר'], _all}.intersection(st.session_state.filters['distance'])) > 0]):
                 val = float(tab_line["מדד כולל"][:-1])
 
                 fig = go.Figure(go.Indicator(
@@ -223,8 +232,7 @@ with tab2:
         st_folium(m,
                 width=700,
                 key="int_map")
-        # expose_int_map()
-    # st.form_submit_button("טען")
+
 
 with tab3:
     sub_tab_detailed, sub_tab_model = st.tabs(["גולמי", "מודל"])
@@ -245,29 +253,23 @@ with tab3:
                         st.form_submit_button("טען", key="width_data")
 
             if data_load_measure_state["load_stack"] == data_load_measure_state["max_load"]:
-                st.toast("שימ/י לב כי כל הנתונים נבחרו להצגה הצגת הנתונים עלולה לקחת זמן רב! ")
+                st.toast("שימ/י לב כי כל הנתונים נבחרו להצגה, טעינת הנתונים עלולה לקחת זמן רב! ")
 
-            print(" |[raw] ###############################  Start debugging Segment ###############################")
+
             # create a list of settlements to buffer the search dimension
-            print(" |[raw] create a list of settlements to buffer the search dimension ")
+
             target_settlements_list = []
             shrinked_settlements_list = []
             st.session_state.attributes = []
             st.session_state.hm_data_frame_raw_data = []
             st.session_state.hm_data_frame_raw_rows = []
             st.session_state.hm_data_frame_raw_cols = []
-            if _all in st.session_state.settlements_selections:
+            if len({_all}.intersection(st.session_state.settlements_selections)) > 0:
                 target_settlements_list = list(InternalGoogleSheetVars.settlements_data.keys())
             else:
                 target_settlements_list = st.session_state.settlements_selections
 
             # tighten search scope with main filters
-            print(" |[raw] tighten search scope with main filters ")
-            print(" |[raw] testing sources :")
-            print(f" |[raw] divisions filter : {st.session_state.filters["division"]}")
-            print(f" |[raw] councils filter : {st.session_state.filters["council"]}")
-            print(f" |[raw] types filter : {st.session_state.filters["type"]}")
-            print(" |[raw] ")
             st.session_state.main_raw_data_frame = {}
             for settlement in target_settlements_list:
                 if (_all in st.session_state.filters["division"] and len(
@@ -287,7 +289,7 @@ with tab3:
                             set(st.session_state.filters["distance"]).intersection(
                                     set(InternalGoogleSheetVars.settlements_data[settlement]["distance"]))):
                                 # if (_all is st.session_state.filters["status"] and len(st.session_state.filters["status"]) == 1) or (set(st.session_state.filters["status"].intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["status"])))):
-                                print(f" |[raw] insertion of settlement: {settlement}")
+                                logging.info(f" |[raw] insertion of settlement: {settlement}")
                                 # the settlement pass all the place filters - creating instance for it data
                                 st.session_state.main_raw_data_frame[settlement] = {}
 
@@ -295,12 +297,10 @@ with tab3:
                                 #for crt in st.session_state.criteria_selections:
                 else:
                     continue
-        print(" |[raw] starting grabbing from sheets")
+
         with st.spinner("מושך נתונים ..."):
             results = []
             with ThreadPoolExecutor(max_workers=67) as executor:
-                print(" |[raw] start grabbing from sheets - ThreadPoolExecutor in context ...")
-                print(f" |[raw] static arguments: mbt_spreadsheet_name:{InternalGoogleSheetVars.mbt_spreadsheet_name}  calculated_table_ranges:{InternalGoogleSheetVars.calculated_table_ranges['הזזה']}")
                 future_to_sheet = { executor.submit(LocalDataEntry.spreadsheet.get_worksheets_range, InternalGoogleSheetVars.mbt_spreadsheet_name, s, InternalGoogleSheetVars.calculated_table_ranges['הזזה']): s for s in list(st.session_state.main_raw_data_frame.keys())}
 
                 for future in as_completed(future_to_sheet):
@@ -310,67 +310,35 @@ with tab3:
                         settlement_data = future.result()
                         # make pointing handling
                         pointing_dict = {key.strip(): index for index, key in enumerate(settlement_data[0])}
-                        print(" |[raw] testing pointing_dict creation ..")
-                        print(" ----------------------------------- ")
-                        for key, index in pointing_dict.items():
-                            print(f"key: {key}")
-                            print(f"index: {index}")
-                            print("_ _ _ _ _ _")
-                        print(" ----------------------------------- ")
-
                         criteria_frame = []
                         ep_data_frame = ['תקן', 'כמות', 'מדד', 'סטטוס']
                         key_transletor = {"status":'סטטוס',"action":'הפעלה',"types":'סיווג',"frame":'מסגרת',"domain":'תחום',"model":'מודל',"economy":'משק',"family":'משפחה'}
-                        print(f" |[raw] sheet_data: {settlement_name}")
+
 
                         for line in settlement_data[1:]:
                             flag = False
-                            print(f" |[raw] settlement: {settlement_name} criteria: {line[0]}")
-                            print(f" |[raw] criteria_selections: {st.session_state.criteria_selections}")
+
+
                             if line[0] in st.session_state.criteria_selections or _all in st.session_state.criteria_selections:
-                                print(f" |[raw] criteria: {line[0]} or {_all} recognized as part of criteria_selections: {st.session_state.criteria_selections}")
+                                logging.info(f" |[raw] criteria: {line[0]} or {_all} recognized as part of criteria_selections: {st.session_state.criteria_selections}")
                                 flag = True
 
                                 if flag:
                                     # a check of the other filters
                                     for eng,heb in key_transletor.items():
-                                        print(f" |[raw] inserting endpoint data ...")
-                                        print(" |[raw] line and dict check: ")
-                                        print(f" |__[raw]  line: {line}")
-                                        print(f" |__[raw]  line[0]: {line[0]}")
-                                        print(f" |__[raw]  line[1]: {line[1]}")
-                                        print(f" |__[raw]  line[2]: {line[2]}")
-                                        print(f" |__[raw]  heb: {heb}")
-
-                                        print(f" |__[raw]  pointing_dict.get(heb): {pointing_dict.get(heb)}")
-                                        print(f" |__[raw]  line[pointing_dict.get(heb)]: {line[pointing_dict.get(heb)]}")
-                                        print(f" |[raw] data selection data {line[pointing_dict.get(heb)]} in list: {st.session_state.selections.get(eng)} and {_all} in {st.session_state.selections.get(eng)}")
-                                        print(f" |___[raw] condition check {line[pointing_dict.get(heb)]} in list: {st.session_state.selections.get(eng)} result: {line[pointing_dict[heb]] in st.session_state.selections[eng]}")
-                                        print(f" |___[raw] condition check {_all} in {st.session_state.selections.get(eng)} result: {_all in st.session_state.selections[eng]}")
 
                                         if line[pointing_dict[heb]]:
-                                            if all([_all not in st.session_state.selections[eng], line[pointing_dict[heb]] not in st.session_state.selections[eng]]):
+                                            if len({_all,line[pointing_dict[heb]]}.intersection(st.session_state.selections[eng])) > 0:
                                                 flag = False
 
                                             break
-                                    print(f" |[raw] flag = {flag} result applied")
-                                    print(" |[raw] inserting the end point data ...")
                                     if flag:
-                                        print(f" |[raw] iteration flag value is {flag}")
-                                        print(f" |[raw] testing main_raw_data_frame structure ... ")
-                                        print("-----------------------------")
-                                        for item, value in st.session_state.main_raw_data_frame.items():
-                                            print(f" key: {item} : {value}")
-                                        print(" example:")
-                                        print(st.session_state.main_raw_data_frame.get('זיקים'))
-                                        print(st.session_state.main_raw_data_frame['זיקים'].get('ערד'))
-                                        print("-----------------------------")
 
                                         st.session_state.main_raw_data_frame[settlement_name][line[0]] = {}
 
                                         for key in ep_data_frame:
-                                            print(f" |[raw] key: {key}")
-                                            print(f" |[raw] pointing_dict[key]: {pointing_dict[key.strip()]}")
+                                            logging.info(f" |[raw] key: {key}")
+                                            logging.info(f" |[raw] pointing_dict[key]: {pointing_dict[key.strip()]}")
                                             # print(f" |[raw] line[pointing_dict[key]]: {line[pointing_dict[key.strip()]]}")
                                             # print(f" |[raw] inserting data of key: {key} data: {converting_raw_data_to_numeric(line[pointing_dict[key.strip()]])}")
                                             try:

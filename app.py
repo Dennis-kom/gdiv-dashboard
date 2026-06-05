@@ -5,7 +5,14 @@ import numpy as np
 from utils.components import status_badge, show_simple_bar_chart
 from utils.data_source import sheet
 from variables.static import InternalGoogleSheetVars
+import logging
 
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 # right alignment to all the text in the page
 st.set_page_config(layout="wide")
 st.markdown(
@@ -56,17 +63,6 @@ with st.form(key="general_view"):
                                 "type":st.session_state.types,
                                 "distance":st.session_state.distances}
 
-
-    # for line in sheet:
-    #     table_line = line
-    #     if table_line['חטיבה'] not in st.session_state.divisions:
-    #         st.session_state.divisions.append(line['חטיבה'])
-    #     if table_line['מועצה'] not in st.session_state.councils:
-    #         st.session_state.councils.append(line['מועצה'])
-    #     if table_line['סיווג'] not in st.session_state.types:
-    #         st.session_state.types.append(line['סיווג'])
-    #     if table_line['מרחק מהגדר'] not in st.session_state.distances:
-    #         st.session_state.distances.append(line['מרחק מהגדר'])
 
     with col1:
         st.session_state.filters['division'] = st.multiselect("חטיבה", st.session_state.divisions)

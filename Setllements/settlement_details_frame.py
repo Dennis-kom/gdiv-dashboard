@@ -1,13 +1,9 @@
 import random
 import time
 import streamlit as st
-
-
-from utils.gsheets_auth import GoogleSheetsAuth
 from utils.gdrive_auth import GoogleDriveAuth
 from utils.components import make_grid, make_gauge_graph, status_badge, LocalDataEntry, show_spider_chart, \
     show_heat_map, present_model_components_table, log
-from variables.static import InternalGoogleSheetVars
 
 
 class StaticData:
@@ -31,7 +27,7 @@ def get_qualification_data(settlement_name):
 def present_single_settlement_details(settlement_name: str):
 
     # load parameters
-    pivot_parameters_names = list(LocalDataEntry.data_sheet[0].keys())
+    # pivot_parameters_names = list(LocalDataEntry.data_sheet[0].keys())
     spider_chart_df = {}
     heat_map_data = []
 

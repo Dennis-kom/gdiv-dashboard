@@ -154,10 +154,11 @@ def make_gauge_graph(in_title, in_value):
         margin=dict(l=20, r=20, t=50, b=0),
         height=250,
     )
-
+    # st.button(in_title,key=f"{in_title}_jump_btn")
+    # todo: the simple title in the graph should be replaced by dynamic link to the settlment page
     st.plotly_chart(fig, width='content',key=f"{in_title}_{in_value}_{random()}")
     
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=2600)
 def self_search_make_gauge_graph(settlement_name):
 
     settlement_details = {}
@@ -182,7 +183,7 @@ def show_settlement_map(lat, lon, settlement_name):
 
     st_folium(m, width=300, height=300)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=2600)
 def show_settlement_data_table(settlment_name):
 
     settlement_details = {}
@@ -350,30 +351,36 @@ def show_simple_bar_chart(data_frame: Dict,index: str):
 def show_spider_chart(data_frame: Dict,index: str):
     categories = list(data_frame.keys())
     values = list(data_frame.values())
-    categories_closed = categories + [categories[0]]
-    values_closed = values + [values[0]]
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(
-        r=values_closed,
-        theta=categories_closed,
-        fill='toself',
-        name=index,
-        line_color='teal'
-    ))
+    if len(categories):
+        categories_closed = categories + [categories[0]]
+    if len(values):
+        values_closed = values + [values[0]]
+    if len(categories) + len(values) >= 2:
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(
+            r=values_closed,
+            theta=categories_closed,
+            fill='toself',
+            name=index,
+            line_color='teal'
+        ))
 
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 100]
-            )
-        ),
-        showlegend=True,
-        title="ניתוח מדדים - מבט רב ממדי"
-    )
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 100]
+                )
+            ),
+            showlegend=True,
+            title="ניתוח מדדים - מבט רב ממדי"
+        )
 
-    st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, width='stretch')
+    else:
+        st.write(InternalGoogleSheetVars.messages["no_data"])
+
 
 
 def show_heat_map(matrix_data_frame: list, index: str):
