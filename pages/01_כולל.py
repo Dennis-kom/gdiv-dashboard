@@ -6,7 +6,6 @@ import plotly.graph_objects as go
 import pandas as pd
 import traceback
 from pathlib import Path
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.components import status_badge, make_gauge_graph, make_grid, LocalDataEntry, place_vertical_spacer, \
     show_spider_chart, show_status_heat_map
@@ -14,6 +13,38 @@ from variables.static import InternalGoogleSheetVars
 from utils.data_source import sheet
 from utils.calculations import modeling_elements_names, StochasticModeling
 from app import st, logging
+
+# הזרקת קוד CSS להפיכת ממשק הדשבורד ל-RTL מלא
+st.markdown(
+    """
+    <style>
+    /* 1. הפיכת המכולה הראשית והסיידבר ל-RTL */
+    [data-testid="stAppViewContainer"], [data-testid="stSidebar"] {
+        direction: rtl;
+        text-align: right;
+    }
+
+    /* 2. סידור כיוון הטקסט בתוך תיבות הבחירה והאינפוטים */
+    .stSelectbox, .stMultiSelect, .stTextInput, .stTextArea, .stRadio, .stCheckbox {
+        direction: rtl;
+        text-align: right;
+    }
+
+    /* 3. יישור כותרות הטאבים (אם יש) */
+    button[data-baseweb="tab"] {
+        direction: rtl;
+    }
+
+    /* 4. תיקון מיקום החצים הקטנים בפינות של התיבות שלא ידרסו את הטקסט העברי */
+    [data-testid="stSelectbox"] svg, [data-testid="stMultiSelect"] svg {
+        right: auto;
+        left: 10px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # settlements_data
 st.set_page_config(layout="wide")
 st.set_page_config(page_title="מבט כולל כל הישובים")
@@ -38,9 +69,9 @@ def log_pref(locations= None, message = None):
     setter = ""
     if locations:
         for key, itm in locations.items():
-            setter += f"{key} - {itm}, "
+            setter += f"{key}-{itm}, "
 
-    return f"{Path(__file__).name} {setter}  LOG:: {message}"
+    return f"{Path(__file__).name} {setter} LOG::{message}"
 
 def converting_raw_data_to_numeric(data: str):
     if "%" in data:
@@ -120,11 +151,16 @@ def is_passing_basic_filter():
 # with st.expander("פילטר ראשי"):
 
 
-tab1, tab2, tab3, tab4 = st.tabs(["מטריצת מדדים", "מפה", "ניתוח רוחבי", "חקר ביצועים"])
+
+chosen_view_option = st.radio(options=["מטריצת מדדים", "מפה", "ניתוח רוחבי", "חקר ביצועים"],label="צורת תצוגה ", horizontal=True, key="main_view_selector_ch")
+options_translator = dict(zip(["scores","map","wide","performance"], ["מטריצת מדדים", "מפה", "ניתוח רוחבי", "חקר ביצועים"]))
+_locations = {}
 
 # scores matrix
-with (tab1):
+if chosen_view_option == options_translator["scores"]:
+
     with st.form(key="main details", width="stretch"):
+        _locations["tab"] = "מטריצת מדדים"
         with st.expander("פילטר ראשי"):
             with st.container():
                 col_a, col_b, col_c = st.columns(3)
@@ -140,7 +176,7 @@ with (tab1):
 
         rows = 0
         cols = 0
-
+        logging.debug(log_pref(locations=_locations, message="building the present matrix"))
         grid  = make_grid(max_cols,max_rows)
 
         for line in sheet:
@@ -162,7 +198,7 @@ with (tab1):
                 else:
                     cols += 1
 # map
-with tab2:
+elif chosen_view_option == options_translator["map"]:
     with st.form(key="set_map_details", width="stretch"):
         with st.expander("פילטר ראשי"):
             with st.container():
@@ -232,11 +268,18 @@ with tab2:
         st_folium(m,
                 width=700,
                 key="int_map")
+# wide
+elif chosen_view_option == options_translator["wide"]:
+    _locations["tab"]= "ניתוח רוחבי"
+    logging.debug(log_pref(locations=_locations, message="starting tb segment"))
 
+    sub_option_wide = st.radio(options=["גולמי", "מודל"], label="צורת ניתוח ", horizontal=True, key="wide_view_selector_ch")
+    _model = "מודל"
+    _raw = "גולמי"
 
-with tab3:
-    sub_tab_detailed, sub_tab_model = st.tabs(["גולמי", "מודל"])
-    with sub_tab_detailed:
+    if sub_option_wide == _raw:
+        _locations["subtab"] = _raw
+        logging.debug(log_pref(locations=_locations, message="starting stb segment"))
         with st.form(key="data_analysis", width="stretch"):
             with st.expander("פילטר ראשי"):
                 with st.container():
@@ -270,36 +313,42 @@ with tab3:
                 target_settlements_list = st.session_state.settlements_selections
 
             # tighten search scope with main filters
+            _locations["segment"] = "tightening search scope from filters"
             st.session_state.main_raw_data_frame = {}
+            logging.debug(log_pref(locations=_locations, message="tighten search scope with main filters"))
+
             for settlement in target_settlements_list:
-                if (_all in st.session_state.filters["division"] and len(
-                        st.session_state.filters["division"]) == 1) or (
-                set(st.session_state.filters["division"]).intersection(
+                logging.debug(
+                    log_pref(locations=_locations, message=f"checking filters sanity for {settlement}"))
+                if {_all}.intersection(set(st.session_state.filters["division"]))  or (
+                    set(st.session_state.filters["division"]).intersection(
                         set(InternalGoogleSheetVars.settlements_data[settlement]["division"]))):
-                    if (_all in st.session_state.filters["council"] and len(
-                            st.session_state.filters["council"]) == 1) or (
-                    set(st.session_state.filters["council"]).intersection(
+                    if {_all}.intersection(set(st.session_state.filters["council"])) or (
+                        set(st.session_state.filters["council"]).intersection(
                             set(InternalGoogleSheetVars.settlements_data[settlement]["council"]))):
-                        if (_all in st.session_state.filters["type"] and len(
-                                st.session_state.filters["type"]) == 1) or (
-                        set(st.session_state.filters["type"]).intersection(
+                        if {_all}.intersection(set(st.session_state.filters["type"])) or (
+                            set(st.session_state.filters["type"]).intersection(
                                 set(InternalGoogleSheetVars.settlements_data[settlement]["type"]))):
-                            if (_all in st.session_state.filters["distance"] and len(
-                                    st.session_state.filters["distance"]) == 1) or (
-                            set(st.session_state.filters["distance"]).intersection(
+                            if {_all}.intersection(set(st.session_state.filters["distance"])) or (
+                                set(st.session_state.filters["distance"]).intersection(
                                     set(InternalGoogleSheetVars.settlements_data[settlement]["distance"]))):
-                                # if (_all is st.session_state.filters["status"] and len(st.session_state.filters["status"]) == 1) or (set(st.session_state.filters["status"].intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["status"])))):
-                                logging.info(f" |[raw] insertion of settlement: {settlement}")
-                                # the settlement pass all the place filters - creating instance for it data
-                                st.session_state.main_raw_data_frame[settlement] = {}
+                                        # if (_all is st.session_state.filters["status"] and len(st.session_state.filters["status"]) == 1) or (set(st.session_state.filters["status"].intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["status"])))):
+                                        # the settlement pass all the place filters - creating instance for it data
+                                        logging.debug(log_pref(locations=_locations,
+                                                               message=f"settlement {settlement} pass all the place filters - creating instance for it data"))
+                                        st.session_state.main_raw_data_frame[settlement] = {}
 
                                 #collection anf filtering the criteria list
                                 #for crt in st.session_state.criteria_selections:
                 else:
                     continue
 
+        _locations["segment"] = "multithreading data grabbing from tables using API"
+        logging.debug(log_pref(locations=_locations, message=f"len of main_raw_data_frame is {len(st.session_state.main_raw_data_frame)}"))
         with st.spinner("מושך נתונים ..."):
             results = []
+            logging.debug(log_pref(locations=_locations,
+                                   message=f"starting to pull data for {len(st.session_state.main_raw_data_frame)} settlements"))
             with ThreadPoolExecutor(max_workers=67) as executor:
                 future_to_sheet = { executor.submit(LocalDataEntry.spreadsheet.get_worksheets_range, InternalGoogleSheetVars.mbt_spreadsheet_name, s, InternalGoogleSheetVars.calculated_table_ranges['הזזה']): s for s in list(st.session_state.main_raw_data_frame.keys())}
 
@@ -319,8 +368,10 @@ with tab3:
                             flag = False
 
 
-                            if line[0] in st.session_state.criteria_selections or _all in st.session_state.criteria_selections:
-                                logging.info(f" |[raw] criteria: {line[0]} or {_all} recognized as part of criteria_selections: {st.session_state.criteria_selections}")
+                            if {line[0], _all}.intersection(set(st.session_state.criteria_selections)):
+                                logging.debug(log_pref(locations=_locations,
+                                                       message=f" criteria: {line[0]} or {_all} recognized as part of criteria_selections: {st.session_state.criteria_selections}"))
+
                                 flag = True
 
                                 if flag:
@@ -337,12 +388,15 @@ with tab3:
                                         st.session_state.main_raw_data_frame[settlement_name][line[0]] = {}
 
                                         for key in ep_data_frame:
-                                            logging.info(f" |[raw] key: {key}")
-                                            logging.info(f" |[raw] pointing_dict[key]: {pointing_dict[key.strip()]}")
-                                            # print(f" |[raw] line[pointing_dict[key]]: {line[pointing_dict[key.strip()]]}")
-                                            # print(f" |[raw] inserting data of key: {key} data: {converting_raw_data_to_numeric(line[pointing_dict[key.strip()]])}")
+                                            logging.debug(log_pref(locations=_locations,
+                                                                   message=f" key: {key}"))
+                                            logging.debug(log_pref(locations=_locations,
+                                                                   message=f" pointing_dict[key]: {pointing_dict[key.strip()]}"))
+
                                             try:
-                                                print(" |__[raw] attmptting key adaptation block .... ")
+                                                logging.debug(log_pref(locations=_locations,
+                                                                       message=" attempting get key adaptation block .... "))
+
                                                 st.session_state.main_raw_data_frame[settlement_name][line[0]][key.strip()] = converting_raw_data_to_numeric(line[pointing_dict[key.strip()]])
                                             except KeyError:
                                                 st.session_state.main_raw_data_frame[settlement_name][line[0]][
@@ -350,7 +404,9 @@ with tab3:
                                                     line[pointing_dict[key + ' ']])
 
                     except Exception as e:
-                        print(f"-frame block exception: {e} ")
+                        logging.critical(log_pref(locations=_locations,
+                                               message=f"-frame block exception: {e} "))
+
                         traceback.print_exc()
 
         # for item, value in st.session_state.main_raw_data_frame.items():
@@ -358,74 +414,98 @@ with tab3:
         #         st.session_state.main_raw_data_frame.pop(item)
 
             _val = 'מדד'
-            print(f" |[raw] chosed presentation level: {st.session_state.data_view_options_raw}")
+            _locations["segment"] = "place the data into visuals forms according to selected option"
+            logging.debug(log_pref(locations=_locations,
+                                      message=f"-chose presentation level: {st.session_state.data_view_options_raw} "))
+
             if True:
+
                 max_cols = 4
+                max_rows = len(st.session_state.main_raw_data_frame) * max_cols
                 rows = 0
                 cols = 0
                 grid = make_grid(max_cols, max_rows)
                 st.session_state.avarages_data_set = {}
-                print(f" |[raw] inserting parameters in clocks function ...")
+                logging.debug(log_pref(locations=_locations,
+                                       message=" inserting parameters in clocks function ..."))
+
                 round_cnt = 0
                 for item, comp in st.session_state.main_raw_data_frame.items():
                     if comp:
                         st.session_state.hm_data_frame_raw_cols.append(item)
-                        print(f" |[raw] {item} is not empty, inserting its endpoint data")
+                        logging.debug(log_pref(locations=_locations,
+                                               message=f" {item} is not empty, inserting its endpoint data"))
                         temp = []
                         for criteria, parameters in comp.items():
                             if round_cnt == 0:
                                 st.session_state.hm_data_frame_raw_rows.append(criteria)
-                                print(f" |[raw] heat map rows criteria: {criteria} added || actual the last value:  {st.session_state.hm_data_frame_raw_rows[0]}")
-                            print(f" |[raw] the data dict of {criteria} is:  {parameters}")
-                            print(f" |[raw] criteria: {criteria}: value of {_val} is {parameters.get(_val)}")
+                                logging.debug(log_pref(locations=_locations,
+                                                       message=f" heat map rows criteria: {criteria} added || actual the last value:  {st.session_state.hm_data_frame_raw_rows[0]}"))
+                            logging.debug(log_pref(locations=_locations,
+                                                   message=f" the data dict of {criteria} is:  {parameters}"))
+                            logging.debug(log_pref(locations=_locations,
+                                                   message=f" criteria: {criteria}: value of {_val} is {parameters.get(_val)}"))
                             if  st.session_state.avarages_data_set.get(criteria):
                                 st.session_state.avarages_data_set[criteria] += parameters[_val]
                                 temp.append(parameters[_val])
-                                print(f" |[raw] heat map temp list : {temp}")
+                                logging.debug(log_pref(locations=_locations,
+                                                       message=f" heat map temp list : {temp}"))
                             else:
                                 st.session_state.avarages_data_set[criteria] = parameters[_val]
                                 temp.append(parameters[_val])
-                                print(f" |[raw] heat map temp list : {temp}")
+                                logging.debug(log_pref(locations=_locations,
+                                                       message=f" heat map temp list : {temp}"))
 
                         st.session_state.hm_data_frame_raw_data.append(temp)
-                        print(f" |[raw] heat map data matrix : {st.session_state.hm_data_frame_raw_data}")
+                        logging.debug(log_pref(locations=_locations,
+                                               message=f" heat map data matrix : {st.session_state.hm_data_frame_raw_data}"))
                     round_cnt += 1
 
                 for criteria, total_sum in  st.session_state.avarages_data_set.items():
                     st.session_state.avarages_data_set[criteria] = total_sum / len(st.session_state.main_raw_data_frame)
+                    logging.debug(log_pref(locations=_locations, message=f"got {st.session_state.avarages_data_set[criteria]=}"))
 
             if st.session_state.data_view_options_raw == "שעונים":
-                for title, value in  st.session_state.avarages_data_set.items():
+                logging.debug(log_pref(locations=_locations,message=" clocks option elected"))
+                _locations["segment"] = "clocks option logic"
+                logging.debug(log_pref(locations=_locations, message=f"working on data: {[(criteria, val) for criteria, val in st.session_state.main_raw_data_frame.items()]}"))
+
+                for title, value in st.session_state.avarages_data_set.items():
                     with grid[rows][cols]:
                         try:
+                            logging.debug(log_pref(locations=_locations,
+                                                   message=f"attempting call function:{'make_gauge_graph'}-with args:{title=}, {value=}"))
                             make_gauge_graph(title, value)
                         except KeyError as e:
-                            print(f" --- Exceptoion KeyError as {e} of: {criteria}")
+                            logging.critical(log_pref(locations=_locations,
+                                                      message=f" Exception KeyError as {e} of: {criteria}"))
 
                     if cols == max_cols - 1:
                         cols = 0
                         rows += 1
                     else:
                         cols += 1
-
             elif st.session_state.data_view_options_raw == "פיזור":
                 show_spider_chart( st.session_state.avarages_data_set,"פיזור")
             else:
                 # heat map
-                print(f" |[raw] heat map - data {st.session_state.hm_data_frame_raw_data}")
-                print(f" |[raw] heat map - cols {st.session_state.hm_data_frame_raw_cols}")
-                print(f" |[raw] heat map - rows {st.session_state.hm_data_frame_raw_rows}")
-                print()
+                _locations["segment"] = "heat map presentation"
+                logging.debug(log_pref(locations=_locations,
+                                       message=f" heat map-data {st.session_state.hm_data_frame_raw_data}"))
+                logging.debug(log_pref(locations=_locations,
+                                       message=f"  heat map-cols {st.session_state.hm_data_frame_raw_cols}"))
+                logging.debug(log_pref(locations=_locations,
+                                       message=f" heat map-rows {st.session_state.hm_data_frame_raw_rows}"))
+                logging.debug(log_pref(locations=_locations,
+                                       message=""))
                 show_status_heat_map(st.session_state.hm_data_frame_raw_data,
                                      st.session_state.hm_data_frame_raw_cols,
                                      st.session_state.hm_data_frame_raw_rows,
                                      "מפת חום")
                 pass
-    print(" |[raw] ###############################  End debugging Segment ###############################")
 
-
-
-    with sub_tab_model:
+    if sub_option_wide == _model:
+        _locations["tab"] = _model
         with st.form(key="data_analysis_model", width="stretch"):
             with st.expander("פילטר ראשי"):
                 with st.container():
@@ -445,7 +525,8 @@ with tab3:
             st.toast("שימ/י לב כי כל הנתונים נבחרו להצגה הצגת הנתונים עלולה לקחת זמן רב! ")
 
         # create a list of settlements to buffer the search dimension
-        print(" |[model] create a list of settlements to buffer the search dimension - model section")
+        logging.debug(log_pref(locations=_locations,
+                               message="create a list of settlements to buffer the search dimension - model section"))
         target_settlements_list = []
         shrinked_settlements_list = []
         st.session_state.attributes = []
@@ -455,18 +536,25 @@ with tab3:
             target_settlements_list = st.session_state.settlements_selections
 
         # tighten search scope with main filters
-        print(" |[model] tighten search scope with main filters")
-        print(" |[model] testing sources:")
-        print(f" |[model] divisions filter: {st.session_state.filters["division"]}")
-        print(f" |[model] councils filter: {st.session_state.filters["council"]}")
-        print(f" |[model] types filter: {st.session_state.filters["type"]}")
-        print(" |[model] ")
+        logging.debug(log_pref(locations=_locations,
+                               message="  tighten search scope with main filters"))
+        logging.debug(log_pref(locations=_locations,
+                               message="  testing sources:"))
+        logging.debug(log_pref(locations=_locations,
+                               message=f"  divisions filter: {st.session_state.filters['division']}"))
+        logging.debug(log_pref(locations=_locations,
+                               message=f"  councils filter: {st.session_state.filters['council']}"))
+        logging.debug(log_pref(locations=_locations,
+                               message=f"  types filter: {st.session_state.filters['type']}"))
+        logging.debug(log_pref(locations=_locations,
+                               message="  "))
         for settlement in target_settlements_list:
             if (_all in st.session_state.filters["division"] and len(st.session_state.filters["division"]) == 1) or (set(st.session_state.filters["division"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["division"]))):
                 if (_all in st.session_state.filters["council"] and len(st.session_state.filters["council"]) == 1) or (set(st.session_state.filters["council"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["council"]))):
                     if (_all in st.session_state.filters["type"] and len(st.session_state.filters["type"]) == 1) or (set(st.session_state.filters["type"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["type"]))):
                         if (_all in st.session_state.filters["distance"] and len(st.session_state.filters["distance"]) == 1) or (set(st.session_state.filters["distance"]).intersection(set(InternalGoogleSheetVars.settlements_data[settlement]["distance"]))):
-                            print(f" |_[model] settlement: {settlement}")
+                            logging.debug(log_pref(locations=_locations,
+                                                   message=f"  settlement: {settlement}"))
                             shrinked_settlements_list.append(settlement)
             else:
                 continue
@@ -474,18 +562,21 @@ with tab3:
         ################################# Logic Segment ######################################
 
         # create a list of the attributes that should be taken from the tables
-        print(" |[model] create a list of the attributes that should be taken from the tables")
+        logging.debug(log_pref(locations=_locations,
+                               message="  create a list of the attributes that should be taken from the tables"))
         if st.session_state.data_view_selector =="raw":
             if st.session_state.selections:
                 for key in st.session_state.selections:
-                    print(f" |[model] key from st.session_state.selection: {key}")
+                    logging.debug(log_pref(locations=_locations,
+                                           message=f"  key from st.session_state.selection: {key}"))
                     if _all not in st.session_state.selections[key]:
                         st.session_state.attributes += st.session_state.selections[key]
-                        print(f" |[model] added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}")
+                        logging.debug(log_pref(locations=_locations,
+                                               message=f"  added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}"))
                     else:
                         st.session_state.attributes += InternalGoogleSheetVars.options[key]
-                        print(
-                            f" |_[model] added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}")
+                        logging.debug(log_pref(locations=_locations,
+                                               message=f"  added value to attributes buffer : {st.session_state.selections[key]} buffer length: {len(st.session_state.attributes)}"))
         else:
             st.session_state.attributes = st.session_state.model_selection
 
@@ -493,8 +584,10 @@ with tab3:
         # buffer related data using external data source (from tables)
 
         results = []
-        print(" |[model] data grabbing segment")
-        print(f" |[model] shrinked_settlements_list length: {len(shrinked_settlements_list)}")
+        logging.debug(log_pref(locations=_locations,
+                               message="  data grabbing segment"))
+        logging.debug(log_pref(locations=_locations,
+                               message=f"  shrinked_settlements_list length: {len(shrinked_settlements_list)}"))
 
 
         # grabbing data from the googlesheet table
@@ -520,32 +613,39 @@ with tab3:
         st.session_state.hm_data_frame = []
         for attr in st.session_state.attributes:
             hm_row = []
-            print(f" |[model] current attribute: {attr}")
+            logging.debug(log_pref(locations=_locations,
+                                   message=f" |[model] current attribute: {attr}"))
             if not local_convertion.get(attr):
                 hm_row = [float(line[attr][:-1]) for line in lines_buffer]
-                data_frame[attr] = sum(hm_row)/len(lines_buffer)
-                print(f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}")
+                data_frame[attr] = sum(hm_row)/(len(lines_buffer) if len(lines_buffer) else 1)
+                logging.debug(log_pref(locations=_locations,
+                                       message=f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}"))
             else:
                 if local_convertion.get(attr.strip()) and type(local_convertion.get(attr.strip())) == type("str"):
                     hm_row = [float(line[local_convertion.get(attr)][:-1]) for line in lines_buffer]
-                    data_frame[attr] = sum(hm_row) / len(lines_buffer)
-                    print(f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}")
+                    data_frame[attr] = sum(hm_row) / (len(lines_buffer) if len(lines_buffer) else 1)
+                    logging.debug(log_pref(locations=_locations,
+                                           message=f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}"))
                 elif local_convertion.get(attr) and type(local_convertion.get(attr)) == type([]):
                     hm_row = sum([float(line[val][:-1]) if "%" in line[val] else status_translator.get(val) for val in local_convertion.get(attr)])/len(local_convertion.get(attr))
                     data_frame[attr] = sum([sum([float(line[val][:-1]) if "%" in line[val] else status_translator.get(val) for val in local_convertion.get(attr)])/len(local_convertion.get(attr)) for line in lines_buffer])/len(lines_buffer)
-                    print(f" |[model] inserted data_frame[attr] : {data_frame[attr]}")
+                    logging.debug(log_pref(locations=_locations,
+                                           message=f" |[model] inserted data_frame[attr] : {data_frame[attr]}"))
                 elif local_convertion.get(attr) and type(local_convertion.get(attr)) == type({}):
                     hm_row = [status_translator.get(line[local_convertion.get(attr)["name"]]) for line in lines_buffer]
                     data_frame[attr] = sum(hm_row) / len(lines_buffer)
-                    print(f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}")
+                    logging.debug(log_pref(locations=_locations,
+                                           message=f" |[model] inserted data_frame[attr] : {data_frame[attr]} - {attr}"))
                 else:
                     data_frame[attr] = 0
-                    print(f" |[model] alert!!! -  inserted data_frame[attr] : is 0 - default value applied - attribute: {attr}")
+                    logging.debug(log_pref(locations=_locations,
+                                           message=f" |[model] alert!!! -  inserted data_frame[attr] : is 0 - default value applied - attribute: {attr}"))
             st.session_state.hm_data_frame.append(hm_row)
 
         # data presentation
         if st.session_state.data_view_options == "שעונים":
             max_cols = 4
+            max_rows = len(st.session_state.hm_data_frame) * max_cols
             rows = 0
             cols = 0
             grid = make_grid(max_cols, max_rows)
@@ -566,8 +666,8 @@ with tab3:
             row_names = shrinked_settlements_list
             col_names = st.session_state.attributes
             show_status_heat_map(st.session_state.hm_data_frame, col_names, row_names, "מפת חום")
-
-with tab4:
+# performance
+elif chosen_view_option == options_translator["performance"]:
     st.session_state.model_definition_list = [itm for itm in InternalGoogleSheetVars.options['model'] if 'מדד' in itm and 'מאג' not in itm and 'ציוד לוגיסטי' not in itm ]
     with st.form(key="operations_research_form", width="stretch"):
         with st.expander("הגדרות מודל סטוכסטי"):
@@ -663,7 +763,8 @@ with tab4:
                     model_input = {}
                     for metric_name, raw_values in st.session_state.stochastic_data_frame.items():
                         if metric_name not in modeling_elements_names:
-                            print(f" |[model] skipping unsupported modeling key: {metric_name}")
+                            logging.debug(log_pref(locations=_locations,
+                                                   message=f" |[model] skipping unsupported modeling key: {metric_name}"))
                             continue
                         avg_value = float(raw_values[0]) if len(raw_values) > 0 else 0.0
                         weight_value = float(raw_values[1]) if len(raw_values) > 1 else avg_value

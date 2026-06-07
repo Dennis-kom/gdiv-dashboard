@@ -1,3 +1,4 @@
+from pathlib import Path
 from random import random
 import streamlit as st
 import plotly.graph_objects as go
@@ -6,7 +7,7 @@ from typing import Dict, List
 from streamlit_folium import st_folium
 from utils.gsheets_auth import GoogleSheetsAuth
 from variables.static import InternalGoogleSheetVars
-
+from app import logging
 
 logs_tag = "|[component]:: "
 statuses_values_dict = {"תקין": 1,
@@ -24,6 +25,13 @@ class LocalDataEntry:
     spreadsheet = GoogleSheetsAuth()
     data_sheet = spreadsheet.get_worksheet(InternalGoogleSheetVars.mbt_spreadsheet_name,
                                       InternalGoogleSheetVars.main_data_worksheet_name)
+def log_pref(locations= None, message = None):
+    setter = ""
+    if locations:
+        for key, itm in locations.items():
+            setter += f"{key}-{itm}, "
+
+    return f"{Path(__file__).name} {setter} LOG::{message}"
 
 def log(message:str):
     print(f"{logs_tag} {message}")
@@ -125,10 +133,12 @@ def status_card(label, text, color_type="success"):
     st.markdown(card_html, unsafe_allow_html=True)
 
 def make_grid(cols, rows):
+    logging.debug(log_pref(locations={"function":"make_grid"}, message=f"Creating grid args: {cols=} {rows=}"))
     grid = [st.columns(cols) for _ in range(rows)]
     return grid
 
 def make_gauge_graph(in_title, in_value):
+    logging.debug(log_pref(locations={"function": "make_gauge_graph"}, message=f"gauge : {in_title=}"))
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=in_value,
@@ -521,7 +531,7 @@ def show_table_with_battery(data_rows, headers, target_col_name='מדד משוק
 
     target_col = str(target_col_name).strip()
 
-    # 2. ניקוי שורות ריקות ושורת סיכום
+
     if 'קריטריון' in df.columns:
         df = df[df['קריטריון'].str.strip() != '']
         df = df[df['קריטריון'].str.strip() != 'משוקלל']
@@ -559,7 +569,6 @@ def present_model_components_table(settlement_name: str, keys: List, ranges=None
     first_seperator = ["אמבולנס"]
     second_seperator = []
 
-    log("*************************** Testing segment ************************************")
     if ranges is None:
         ranges = []
     for index, k_range in enumerate(keys):
@@ -570,15 +579,15 @@ def present_model_components_table(settlement_name: str, keys: List, ranges=None
                     InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name,
                     ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[local_dict[k_range]])
             elif k_range == 'מחלקות הגנה - כשירות':
-                log(f"add_data {add_data}")
+
                 with st.container():
                     st.write(f"{add_data}  כשירות מחלקת הגנה: ")
 
             else:
-                print(f" {logs_tag} range to invoke: {InternalGoogleSheetVars.settlements_models_ranges[k_range]} with key {k_range} ranges: {ranges}")
+
                 model_table = LocalDataEntry.spreadsheet.get_worksheets_range(InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name, ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[k_range]
             )
-            #print(f"{logs_tag} model_table: \n ---------------------- {model_table}  \n ---------------------- \n")
+
         except Exception as e:
             log(f"\nError revoked from key: {k_range} reading table from file - failed!\n")
             st.error(f" {k_range}: {e}")
