@@ -5,11 +5,19 @@ import plotly.graph_objects as go
 import folium
 from typing import Dict, List
 from streamlit_folium import st_folium
-from utils.gsheets_auth import GoogleSheetsAuth
-from variables.static import InternalGoogleSheetVars
-from app import logging
 
-logs_tag = "|[component]:: "
+from data.entities.defence_class_fighter import Ravshatz
+from visual_components.gauge import GaugeGraph, GaugeGraphLinked
+from data.internal.run_time_instances import get_google_sheets_instance
+from data.external.defence_class_data_frame import DefenceClass
+from data.external.gsheets_auth import GoogleSheetsAuth
+from data.static import InternalGoogleSheetVars
+from utils.logger import color_logger, log_pref
+from visual_components.page_layout import page_layout_rtl
+
+log = color_logger()
+_locations = {"file_name" : Path(__file__).name}
+
 statuses_values_dict = {"תקין": 1,
                         "לא תקין\חסר": 0,
                         "בהקמה": 0.5,
@@ -21,23 +29,15 @@ class StatusBadgeValues:
     abnormal = ["לא תקין\\חסר", "error"]
 
 
+@st.cache_data
 class LocalDataEntry:
-    spreadsheet = GoogleSheetsAuth()
-    data_sheet = spreadsheet.get_worksheet(InternalGoogleSheetVars.mbt_spreadsheet_name,
+    data_sheet = get_google_sheets_instance().get_worksheet(InternalGoogleSheetVars.mbt_spreadsheet_name,
                                       InternalGoogleSheetVars.main_data_worksheet_name)
-def log_pref(locations= None, message = None):
-    setter = ""
-    if locations:
-        for key, itm in locations.items():
-            setter += f"{key}-{itm}, "
 
-    return f"{Path(__file__).name} {setter} LOG::{message}"
 
-def log(message:str):
-    print(f"{logs_tag} {message}")
-
-def status_badge(text, color_type="success"):
-
+def status_badge(text, color_type="success", path=None):
+    _locations["function"] = "status_badge"
+    log.debug(log_pref(locations=_locations, message=f" arguments {text=} {color_type=} {path=} "))
     if color_type == "success":
         bg_color = "#C6EFCE"
         text_color = "#006100"
@@ -79,10 +79,14 @@ def status_badge(text, color_type="success"):
         {text}
     </div>
     """
+
     st.markdown(badge_html, unsafe_allow_html=True)
+    if path:
+        st.page_link(path, label="פרטים")
 
 def status_card(label, text, color_type="success"):
-
+    _locations["function"] = "status_card"
+    log.debug(log_pref(locations=_locations, message=f"Creating status card args: {label=} {text=} {color_type=}"))
     colors = {
         "success": ("#C6EFCE", "#006100"),
         "error": ("#FFC7CE", "#9C0006"),
@@ -133,44 +137,28 @@ def status_card(label, text, color_type="success"):
     st.markdown(card_html, unsafe_allow_html=True)
 
 def make_grid(cols, rows):
-    logging.debug(log_pref(locations={"function":"make_grid"}, message=f"Creating grid args: {cols=} {rows=}"))
+    _locations["function"] = "make_grid"
+    log.debug(log_pref(locations=_locations, message=f"Creating grid args: {cols=} {rows=}"))
     grid = [st.columns(cols) for _ in range(rows)]
     return grid
 
 def make_gauge_graph(in_title, in_value):
-    logging.debug(log_pref(locations={"function": "make_gauge_graph"}, message=f"gauge : {in_title=}"))
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=in_value,
-        domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': in_title},
-        gauge={
-            'axis': {'range': [None, 100]},
-            'bar': {'color': "red" if in_value < 50 else ("yellow" if  50 < in_value < 90 else "green" )},
-            'steps': [
-                {'range': [0, 50], 'color': "lightgray"},
-                {'range': [50, 90], 'color': "gray"},
-                {'range': [90, 100], 'color': "lightgreen"}
-            ],
-            'threshold': {
-                'line': {'color': "black", 'width': 2},
-                'thickness': 0.75,
-                'value': 90
-            }
-        }
-    ))
+    g = GaugeGraph(in_title, in_value)
+    g.create_gauge()
 
-    fig.update_layout(
-        margin=dict(l=20, r=20, t=50, b=0),
-        height=250,
-    )
-    # st.button(in_title,key=f"{in_title}_jump_btn")
-    # todo: the simple title in the graph should be replaced by dynamic link to the settlment page
-    st.plotly_chart(fig, width='content',key=f"{in_title}_{in_value}_{random()}")
-    
+def make_linked_gauge_labeled_component(in_title, in_value, link_destination, badge_text, badge_color):
+    _locations["function"] = "make_linked_gauge_labeled_component"
+    log.debug(log_pref(locations=_locations, message=f" args: {in_title=} {in_value=} {link_destination=} {badge_text=}"))
+    g = GaugeGraphLinked(in_title, in_value,f"pages/{link_destination}.py",in_title)
+    g.create_gauge()
+    status_badge(badge_text, badge_color, f"pages/{link_destination}.py")
+
+
 @st.cache_data(ttl=2600)
 def self_search_make_gauge_graph(settlement_name):
-
+    _locations["function"] = "self_search_make_gauge_graph"
+    log.debug(
+        log_pref(locations=_locations, message=f" args: {settlement_name=} "))
     settlement_details = {}
     for line in LocalDataEntry.data_sheet:
         if line['ישוב'] == settlement_name:
@@ -178,9 +166,12 @@ def self_search_make_gauge_graph(settlement_name):
             break
 
     make_gauge_graph(settlement_details["סטטוס כולל"], float(settlement_details["מדד כולל"][:-1]))
-
+    return settlement_details["סטטוס כולל"]
 
 def show_settlement_map(lat, lon, settlement_name):
+    _locations["function"] = "show_settlement_map"
+    log.debug(
+        log_pref(locations=_locations, message=f" args: {settlement_name=} {lat=} {lon=} "))
     m = folium.Map(location=[lat, lon], zoom_start=15)
 
 
@@ -195,13 +186,16 @@ def show_settlement_map(lat, lon, settlement_name):
 
 @st.cache_data(ttl=2600)
 def show_settlement_data_table(settlment_name):
-
+    _locations["function"] = "show_settlement_data_table"
+    if "ravshats_table" not in st.session_state:
+        st.session_state["ravshats_table"] = {}
     settlement_details = {}
     for line in LocalDataEntry.data_sheet:
         if line["ישוב"] == settlment_name:
             settlement_details = line
             break
-
+    if settlment_name not in st.session_state["ravshats_table"]:
+        st.session_state["ravshats_table"][settlment_name] = settlement_details['רבש"צ']
     data = [
         {"חטיבה": settlement_details['חטיבה'],
         "מדד": settlement_details['מדד כולל'],
@@ -229,8 +223,9 @@ def show_settlement_data_table(settlment_name):
 
 
 def show_detailed_calculeted_table(settlement_name):
+    _locations["function"] = "show_detailed_calculeted_table"
     raw_data = []
-    set_sheet = LocalDataEntry.spreadsheet.get_worksheets_range(InternalGoogleSheetVars.mbt_spreadsheet_name,
+    set_sheet = get_google_sheets_instance().get_worksheets_range(InternalGoogleSheetVars.mbt_spreadsheet_name,
                                                                 settlement_name,
                                                                 InternalGoogleSheetVars.calculated_table_ranges["הזזה"])
     titles = set_sheet[0]
@@ -324,8 +319,9 @@ def show_detailed_calculeted_table(settlement_name):
 
 @st.cache_data(ttl=3600)
 def show_detailed_badged_table(settlement_name):
+    _locations["function"] = "show_detailed_badged_table"
     raw_data = {}
-    spreadsheet = GoogleSheetsAuth()
+    spreadsheet = get_google_sheets_instance()
     for title, table_range in InternalGoogleSheetVars.detailed_badged_table_ranges.items():
         # process the data and cut irelevant
         raw_data[title] = spreadsheet.get_worksheets_range(InternalGoogleSheetVars.main_data_worksheet_name,settlement_name,table_range)[1][0]
@@ -353,12 +349,14 @@ def show_detailed_badged_table(settlement_name):
             col += 1
 
 def show_simple_bar_chart(data_frame: Dict,index: str):
+    _locations["function"] = "show_simple_bar_chart"
     df = pd.DataFrame(data_frame)
 
     st.bar_chart(df.set_index(index))
 
 
 def show_spider_chart(data_frame: Dict,index: str):
+    _locations["function"] = "show_spider_chart"
     categories = list(data_frame.keys())
     values = list(data_frame.values())
 
@@ -394,6 +392,7 @@ def show_spider_chart(data_frame: Dict,index: str):
 
 
 def show_heat_map(matrix_data_frame: list, index: str):
+    _locations["function"] = "show_heat_map"
 
     dim = len(matrix_data_frame)
     df = pd.DataFrame(matrix_data_frame, columns=[f"עמודה {i}" for i in range(dim)])
@@ -412,6 +411,7 @@ import streamlit as st
 
 
 def show_status_heat_map(matrix_data: list, row_names: list, col_names: list, title: str):
+    _locations["function"] = "show_status_heat_map"
 
     # 1. מיפוי המספרים למילים לצורך התצוגה
     status_map = {0: "לא תקין", 1: "חלקי", 2: "תקין"}
@@ -467,16 +467,19 @@ def show_status_heat_map(matrix_data: list, row_names: list, col_names: list, ti
 #
 # show_status_heat_map(data, rows, cols, "סטטוס מדדים רוחבי")
 def place_vertical_spacer(dim: int):
+    _locations["function"] = "place_vertical_spacer"
 
     for i in range(dim):
         st.write("")
 
 
 def show_table():
+    _locations["function"] = "show_table"
     pass
 
 
 def show_table_with_battery_(data_frame: list, titles: list, battery_column: str = None, battery_title: str = "מדד"):
+    _locations["function"] = "show_table_with_battery_"
     df = pd.DataFrame(data_frame, columns=titles)
 
     source_col = battery_column if battery_column in df.columns else titles[-1]
@@ -509,6 +512,7 @@ def show_table_with_battery_(data_frame: list, titles: list, battery_column: str
     )
 # Helper function to parse percentages safely
 def parse_percentage_string(val):
+    _locations["function"] = "parse_percentage_string"
     if pd.isna(val) or not str(val).strip():
         return 0.0
     val_str = str(val).replace('%', '').strip()
@@ -525,6 +529,7 @@ def show_table_with_battery(data_rows, headers, target_col_name='מדד משוק
     Renders a clean Streamlit dataframe using native ProgressColumn
     for visual metric representation.
     """
+    _locations["function"] = "show_table_with_battery"
     # 1. יצירת הדאטה פריים וניקוי רווחים מהכותרות
     cleaned_headers = [str(h).strip() for h in headers]
     df = pd.DataFrame(data_rows, columns=cleaned_headers)
@@ -563,7 +568,11 @@ def show_table_with_battery(data_rows, headers, target_col_name='מדד משוק
         column_config=column_configuration,
         hide_index=True
     )
+
 def present_model_components_table(settlement_name: str, keys: List, ranges=None, add_data=None):
+    _locations["function"] = "present_model_components_table"
+    if "present_model_components_table" not in st.session_state:
+        st.session_state["present_model_components_table"] = "calss"
     local_dict = {'רפואה - אמבולנס':"אמבולנס ממוגן",
                   'רפואה - ציוד':"מדד ציוד רפואי",}
     first_seperator = ["אמבולנס"]
@@ -575,33 +584,103 @@ def present_model_components_table(settlement_name: str, keys: List, ranges=None
         model_table = []
         try:
             if k_range in local_dict.keys():
-                model_table = LocalDataEntry.spreadsheet.get_worksheets_range(
+                model_table = get_google_sheets_instance().get_worksheets_range(
                     InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name,
                     ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[local_dict[k_range]])
             elif k_range == 'מחלקות הגנה - כשירות':
 
                 with st.container():
-                    st.write(f"{add_data}  כשירות מחלקת הגנה: ")
+
+                    # radio_btn_selection = st.radio(label="בחירת נתונים:", options=["מחלקת הגנה","רבש\"צ"],horizontal=True)
+                    #if radio_btn_selection == "מחלקת הגנה":
+                    with st.container(border=True):
+                        st.write(f" כשירות מחלקת הגנה: {add_data} ")
+                    with st.container(border=True):
+                        dc = DefenceClass()
+                        data =dc.get_defence_class_fighters_data_frame(settlement_name)
+                        df = pd.DataFrame({
+                            "שם": [tup[0] for tup in data if tup[0] != "nan"],
+                            "כשירות": [tup[1] for tup in data if tup[0] != "nan"],
+                        })
+                        st.markdown(
+                            """
+                            <style>
+                                /* 1. יישור הכותרות והתאים של st.table הסטטי */
+                                .stTable table {
+                                    direction: rtl !important;
+                                    text-align: right !important;
+                                }
+                                .stTable th, .stTable td {
+                                    text-align: right !important;
+                                }
+
+                                /* 2. יישור תאים וכותרות בתוך st.dataframe האינטראקטיבי */
+                                div[data-testid="stDataFrame"] table {
+                                    direction: rtl !important;
+                                }
+                                div[data-testid="stDataFrame"] td, div[data-testid="stDataFrame"] th {
+                                    text-align: right !important;
+                                }
+
+                                /* 3. במידה והשתמשת ברכיב החדש של st.dataframe המבוסס על Glide Data Grid */
+                                div[data-testid="stCanvasDataFrame"] {
+                                    direction: rtl !important;
+                                }
+                                </style>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                        st.table(df)
+                # elif radio_btn_selection == "רבש\"צ":
+                    with st.container(border=True,):
+                        page_layout_rtl()
+                        st.write("רבשצ")
+                    if "ravshats_table" not in st.session_state:
+                        if settlement_name not in st.session_state["ravshats_table"]:
+                            ravshatz_name = ""
+                        st.write("רבשצ לא נמצא במאגר הנתונים")
+                    else:
+                        page_layout_rtl()
+                        log.debug(log_pref(locations=_locations,
+                                              message=f"ravshatz qualification database invoke: session state {st.session_state["ravshats_table"][settlement_name]}\n"))
+                        ravshatz_name = " ".join((st.session_state["ravshats_table"][settlement_name].strip()).split(" ")[:2])
+                        log.debug(log_pref(locations=_locations,
+                                           message=f"cleand name= {ravshatz_name}\n"))
+                        ravshatz = Ravshatz(ravshatz_name,settlement_name)
+
+                        qualification_status = ravshatz.get_ravshatz_qualification_status()
+                        log.debug(log_pref(locations=_locations,
+                                           message=f"{qualification_status=}\n"))
+                        log.debug(log_pref(locations=_locations,
+                                           message=f"ravshatz qualification database invoke: qualification_status= {qualification_status['data'][0]['qualifications']}\n"))
+                        with st.container(border=True):
+                            st.write(f"{ravshatz_name} : {qualification_status['data'][0]['qualifications']}")
+
+                    # self_search_make_gauge_graph(settlement_name)
 
             else:
-
-                model_table = LocalDataEntry.spreadsheet.get_worksheets_range(InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name, ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[k_range]
+                page_layout_rtl()
+                model_table = get_google_sheets_instance().get_worksheets_range(InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name, ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[k_range]
             )
 
         except Exception as e:
-            log(f"\nError revoked from key: {k_range} reading table from file - failed!\n")
+            log.critical(log_pref(locations=_locations, message=f"\nError revoked from key: {k_range} reading table from file - failed!\n"))
             st.error(f" {k_range}: {e}")
-            log(f"Error says {e}")
+
 
         #log(f"checking models table is not null =  {len(model_table)}")
         if model_table:
-            log(f" **** **** model_table with len {len(model_table)} accepted with key {k_range}....")
-            log(f" **** **** k condition { any([True if "אמבולנס" in k else False for k in k_range])} accepted with key {k_range}")
+            log.debug(log_pref(locations=_locations,
+                                  message=f"model_table with len {len(model_table)} accepted with key {k_range}"))
+            log.debug(log_pref(locations=_locations,
+                               message=f"k condition { any([True if "אמבולנס" in k else False for k in k_range])} accepted with key {k_range=}"))
+
             if any([True if "אמבולנס" in k else False for k in k_range]) :
 
                 data = model_table[1:]
-                log(f"\n >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> \n")
-                log(f"data: {data}")
+                log.debug(log_pref(locations=_locations,
+                                   message=f"{data=}"))
+
                 st.write(data)
                 headers = model_table[0]
                 df = pd.DataFrame(data, columns=headers)

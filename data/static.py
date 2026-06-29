@@ -373,6 +373,77 @@ class InternalGoogleSheetVars:
                                  "מדד צח\"י":"R101:V105",
                                 }
 
+class RollDownOptions:
+    divisions = ['הכל', 'צפונית', 'דרומית']
+    councils = ['הכל', 'שדרות', 'שער הנגב', 'שדות נגב', 'אשכול', 'חוף אשקלון']
+    types = ['הכל', 'סמוך', 'ליבה', 'ליבה קדמי']
+    distances = ['הכל', '7+', '4-7', '0-4']
+    val_selections = ['הכל'] + ["0-30", "30-50", "50-90", "90-100"]
+    precents = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%", "130%",
+                "140%", "150%"]
+    probability = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"]
+
+
+
 class MagenGoogleSheetsVars:
     pass
 
+
+def export_settlements_to_csv(output_path: str = "settlements.csv"):
+    """
+    Exports the settlements_data dictionary from InternalGoogleSheetVars to a CSV file.
+    
+    The CSV will have:
+    - First column: "name" (settlement names)
+    - Remaining columns: "division", "council", "classification", "distance"
+    
+    Args:
+        output_path (str): Path where the CSV file will be saved. Default: "settlements.csv"
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        import csv
+        from pathlib import Path
+        
+        # Get the settlements data
+        settlements_data = InternalGoogleSheetVars.settlements_data
+        
+        if not settlements_data:
+            print("Error: settlements_data is empty")
+            return False
+        
+        # Determine all unique column keys from the sub-dictionaries
+        column_keys = set()
+        for settlement_info in settlements_data.values():
+            column_keys.update(settlement_info.keys())
+        
+        # Sort column keys for consistent ordering
+        column_keys = sorted(list(column_keys))
+        
+        # Prepare CSV headers: "name" first, then all other columns
+        headers = ["name"] + column_keys
+        
+        # Create parent directories if they don't exist
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write to CSV file
+        with open(output_path, 'w', encoding='utf-8-sig', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=headers)
+            
+            # Write header row
+            writer.writeheader()
+            
+            # Write data rows
+            for settlement_name, settlement_info in settlements_data.items():
+                row = {"name": settlement_name}
+                row.update(settlement_info)
+                writer.writerow(row)
+        
+        print(f"Successfully exported {len(settlements_data)} settlements to {output_path}")
+        return True
+        
+    except Exception as e:
+        print(f"Error exporting settlements to CSV: {e}")
+        return False

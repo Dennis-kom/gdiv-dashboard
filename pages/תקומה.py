@@ -1,7 +1,10 @@
 import streamlit as st
 from pathlib import Path
 from Setllements.settelmet_page_base import PageBase
+from visual_components.page_layout import page_layout_rtl
+from utils.secure import enforce_authentication
 
-st.session_state.settlement_name = f"{Path(__file__).name.split('.')[0].strip()}"
+enforce_authentication()
 
-p = PageBase(st.session_state.settlement_name)
+page_layout_rtl()
+p = PageBase(f"{Path(__file__).name.split('.')[0].strip()}")

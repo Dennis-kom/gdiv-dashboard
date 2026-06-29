@@ -1,10 +1,18 @@
 import random
 import time
+from pathlib import Path
 import streamlit as st
-from utils.gdrive_auth import GoogleDriveAuth
-from utils.components import make_grid, make_gauge_graph, status_badge, LocalDataEntry, show_spider_chart, \
-    show_heat_map, present_model_components_table, log
+from data.internal.run_time_instances import get_google_drive_instance
+from utils.components import make_grid, make_gauge_graph, LocalDataEntry, show_spider_chart, \
+    present_model_components_table
+from utils.logger import color_logger,log_pref
 
+# logging instance
+log = color_logger()
+file_name = Path(__file__).name.split('.')[0].strip()
+
+
+st.session_state["settlement_details_frame"] = "s_tab1"
 
 class StaticData:
     spreadsheet_name = "מרכיבי בטחון "
@@ -13,19 +21,25 @@ class StaticData:
 
 @st.cache_data
 def get_qualification_data(settlement_name):
-    gs = GoogleDriveAuth()
+    _locations = {"file_name: " : file_name, "function: ": "get_qualification_data", "arg": settlement_name}
+    log.debug(log_pref(locations=_locations, message=f"google drive authentication"))
+    gs = get_google_drive_instance()
+
     ret_val = gs.get_qualification_variable(settlement_name)
-    print(f"   >> >> get_qualification_data ret_val = {ret_val}")
+    log.debug(log_pref(locations=_locations, message=f"returned ret_val = {ret_val}"))
+
+
     if ret_val:
         dt = float(gs.get_qualification_variable(settlement_name))
         if dt:
             return dt * 100
 
-    print(f"   >> >> >> ALERT: get_qualification_data ret_val got None returning default regenerate ... ")
+    log.critical(log_pref(locations=_locations, message=f"get_qualification_data ret_val got None returning default regenerate"))
     return random.uniform(0.6, 1.0)*100
 
+# todo: refactor all function to more robastic maner - now it hard coded - when the data base will be ready
 def present_single_settlement_details(settlement_name: str):
-
+    _locations = {"file_name: ": file_name, "function: ": "present_single_settlement_details", "arg": settlement_name}
     # load parameters
     # pivot_parameters_names = list(LocalDataEntry.data_sheet[0].keys())
     spider_chart_df = {}
@@ -35,7 +49,6 @@ def present_single_settlement_details(settlement_name: str):
                             "לא תקין\חסר":0,
                             "בהקמה":0.5,
                     }
-
     pivot_parameters_names = {"מדד מב\"ט בסיסי":["מדד מב\"ט בסיסי"],
                 "מדד מב\"ט מתקדם":["מדד מב\"ט מתקדם"],
                 "רפואה":["רפואה - אמבולנס","רפואה - ציוד"] ,
@@ -49,78 +62,122 @@ def present_single_settlement_details(settlement_name: str):
                 "צחי":["צח\"י כשירות סטטוס", "צח\"י - כח אדם"],
                 "חמ\"ל ישובי" :["חמ\"ל ישובי כח אדם", "חמ\"ל ישובי - ציוד"]}
 
-    s_tab1, s_tab2, s_tab3, s_tab4, s_tab5, s_tab6, s_tab7, s_tab8 = st.tabs(["מסכם","מדד מב\"ט בסיסי", "מדד מב\"ט מתקדם", "רפואה", "מחלקת הגנה", "נץ", "צחי", "חמ\"ל ישובי"])
-    with s_tab1:
-        max_parameters = len(pivot_parameters_names)
-        min_parameters = 0
-        settlement_details = {}
+    def go_back():
+        st.session_state["settlement_details_frame"] = "s_tab1"
+        st.rerun()
 
-        # find the settlement
-        for line in LocalDataEntry.data_sheet:
-            if line["ישוב"] == settlement_name:
-                settlement_details = line
-                break
+    def s_tab2():
+        if st.session_state["settlement_details_frame"] == "s_tab2":
+            table_keys = ["מדד מב\"ט בסיסי"]
+            log.debug(log_pref(locations=_locations, message=f" \n**** input from tab 2 -settlement_name = {settlement_name} table_keys = {table_keys}"))
+            present_model_components_table(settlement_name, table_keys)
+            st.button(on_click=go_back, label="חזור", type="primary", key=f"back_button_{random.random()}")
+    def s_tab3():
+        if st.session_state["settlement_details_frame"] == "s_tab3":
+            table_keys = ["מדד מב\"ט מתקדם"]
+            log.debug(log_pref(locations=_locations, message=f" \n**** input from tab 3 -settlement_name = {settlement_name} table_keys = {table_keys}"))
+            present_model_components_table(settlement_name, table_keys)
+            st.button(on_click=go_back, label="חזור", type="primary", key=f"back_button_{random.random()}")
+    def s_tab4():
+        if st.session_state["settlement_details_frame"] == "s_tab4":
+            table_keys = ["רפואה - אמבולנס","רפואה - ציוד"]
+            r_ranges = ["A276:B277" ,"X29:AB33" ]
+            log.debug(log_pref(locations=_locations, message=f" \n**** input from tab 4 -settlement_name = {settlement_name} table_keys = {table_keys}"))
+            present_model_components_table(settlement_name, table_keys, r_ranges)
+            st.button(on_click=go_back, label="חזור", type="primary", key=f"back_button_{random.random()}")
 
-        # initializing grid creation
-        if settlement_details:
-            rows = 0
-            cols = 0
+    def s_tab5():
+        if st.session_state["settlement_details_frame"] == "s_tab5":
+            table_keys = ["מדד איוש מ\"ה","מחלקות הגנה - כשירות"]
+            r_ranges = ["K21:P24", "R4:V19"]
+            log.debug(log_pref(locations=_locations, message=f" \n**** input from tab 4 -settlement_name = {settlement_name} table_keys = {table_keys}"))
+            present_model_components_table(settlement_name, table_keys,r_ranges,get_qualification_data(settlement_name))
+            st.button(on_click=go_back, label="חזור", type="primary", key=f"back_button_{random.random()}")
+    def s_tab6():
+        if st.session_state["settlement_details_frame"] == "s_tab6":
+            st.write("בפיתוח")
+            st.button(on_click=go_back, label="חזור", type="primary", key=f"back_button_{random.random()}")
+    def s_tab7():
+        if st.session_state["settlement_details_frame"] == "s_tab7":
+            st.write("בפיתוח")
+            st.button(on_click=go_back, label="חזור", type="primary", key=f"back_button_{random.random()}")
+    def s_tab8():
+        if st.session_state["settlement_details_frame"] == "s_tab8":
+            st.write("בפיתוח")
+            st.button(on_click=go_back, label="חזור", type="primary", key=f"back_button_{random.random()}")
 
-            grid = make_grid(3, max_parameters)
-            for key, comps in pivot_parameters_names.items():
-                with grid[rows][cols]:
+    callbacks_references = {"מדד מב\"ט בסיסי":s_tab2, "מדד מב\"ט מתקדם":s_tab3, "רפואה":s_tab4, "מחלקת הגנה":s_tab5, "נץ":s_tab6, "צחי":s_tab7, "חמ\"ל ישובי":s_tab8}
+    def switch_view(func):
+        _locations["function"] = "switch_view"
+        log.debug(log_pref(locations=_locations,
+                           message=f" \nsettlement_name = {settlement_name}  {func.__name__}"))
+        st.session_state["settlement_details_frame"] = func.__name__
+        func()
 
-                    for comp in comps:
-                        val_range = []
-                        if ("סטטוס" in comp or "אמבולנס" in comp) and 'נץ' not in comp:
-                            val_range.append(statuses_values_dict[settlement_details[comp]])
-                        else:
 
-                            if  "מחלקות הגנה - כשירות" not in comp and "מחלקת הגנה - ציוד - לוגיסטי" not in comp and  'נץ' not in comp:
-                                val_range.append(float(settlement_details[comp][:-1]))
-                            elif "מחלקות הגנה - כשירות" in comp:
-                                val_range.append(get_qualification_data(settlement_name) if get_qualification_data(settlement_name) else 74)
-                                time.sleep(1.5)
-                            elif 'נץ' in comp:
-                                val_range.append(statuses_values_dict[settlement_details[comp]]*100)
+    with st.container():
+        if "settlement_details_frame" not in st.session_state:
+            st.session_state["settlement_details_frame"] = "s_tab1"
+
+        if st.session_state["settlement_details_frame"] == "s_tab1":
+            st.markdown(f"""
+                         <div style='text-align: right;'>
+                             <h1>{settlement_name} </h1>
+                         </div>
+                         """, unsafe_allow_html=True)
+            max_parameters = len(pivot_parameters_names)
+            min_parameters = 0
+            settlement_details = {}
+
+            # find the settlement
+            for line in LocalDataEntry.data_sheet:
+                if line["ישוב"] == settlement_name:
+                    settlement_details = line
+                    break
+
+            # initializing grid creation
+            if settlement_details:
+                rows = 0
+                cols = 0
+
+                grid = make_grid(3, max_parameters)
+                for key, comps in pivot_parameters_names.items():
+                    with grid[rows][cols]:
+
+                        for comp in comps:
+                            val_range = []
+                            if ("סטטוס" in comp or "אמבולנס" in comp) and 'נץ' not in comp:
+                                val_range.append(statuses_values_dict[settlement_details[comp]])
                             else:
-                                val_range.append(float(settlement_details[comp][:-1])*20)
-                    print(f"key = {key} comp = {comp} val_range = {sum(val_range)} avg = {sum(val_range)/len(val_range)}")
-                    spider_chart_df[key] = sum(val_range)/len(val_range)
-                    make_gauge_graph(key, sum(val_range)/len(val_range))
+
+                                if  "מחלקות הגנה - כשירות" not in comp and "מחלקת הגנה - ציוד - לוגיסטי" not in comp and  'נץ' not in comp:
+                                    val_range.append(float(settlement_details[comp][:-1]))
+                                elif "מחלקות הגנה - כשירות" in comp:
+                                    val_range.append(get_qualification_data(settlement_name) if get_qualification_data(settlement_name) else 74)
+                                    time.sleep(1)
+                                elif 'נץ' in comp:
+                                    val_range.append(statuses_values_dict[settlement_details[comp]]*100)
+                                else:
+                                    val_range.append(float(settlement_details[comp][:-1])*20)
+                        log.debug(log_pref(locations=_locations, message=f"key = {key} comp = {comp} val_range = {sum(val_range)} avg = {sum(val_range)/len(val_range)}"))
+                        spider_chart_df[key] = sum(val_range)/len(val_range)
+                        make_gauge_graph(key, sum(val_range)/len(val_range))
+                        st.button(label=f"{key}-פרטים-",
+                                  on_click=switch_view,
+                                  args=(callbacks_references[key],),
+                                  width="stretch",
+                                  type="primary",
+                                  key=f"{key}_callback_{random.random()}")
 
 
-                if cols == 2:
-                    cols = 0
-                    rows += 1
-                else:
-                    cols += 1
+                    if cols == 2:
+                        cols = 0
+                        rows += 1
+                    else:
+                        cols += 1
 
-        show_spider_chart(spider_chart_df, "מדד כולל")
-    with s_tab2:
-        table_keys = ["מדד מב\"ט בסיסי"]
-        log(f" \n**** input from tab 2 -settlement_name = {settlement_name} table_keys = {table_keys}")
-        present_model_components_table(settlement_name, table_keys)
-    with s_tab3:
-        table_keys = ["מדד מב\"ט מתקדם"]
-        log(f" \n**** input from tab 3 -settlement_name = {settlement_name} table_keys = {table_keys}")
-        present_model_components_table(settlement_name, table_keys)
-    with s_tab4:
-        table_keys = ["רפואה - אמבולנס","רפואה - ציוד"]
-        r_ranges = ["A276:B277" ,"X29:AB33" ]
-        log(f" \n**** input from tab 4 -settlement_name = {settlement_name} table_keys = {table_keys}")
-        present_model_components_table(settlement_name, table_keys, r_ranges)
-    with s_tab5:
-        table_keys = ["מדד איוש מ\"ה","מחלקות הגנה - כשירות"]
-        r_ranges = ["K21:P24", "R4:V19"]
-        log(f" \n**** input from tab 4 -settlement_name = {settlement_name} table_keys = {table_keys}")
-        present_model_components_table(settlement_name, table_keys,r_ranges,get_qualification_data(settlement_name) )
-    with s_tab6:
-        st.write("tab 6")
-    with s_tab7:
-        st.write("tab 7")
-    with s_tab8:
-        st.write("tab 8")
+            show_spider_chart(spider_chart_df, "מדד כולל")
+
 
 
 

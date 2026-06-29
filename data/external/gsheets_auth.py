@@ -7,6 +7,7 @@ import streamlit as st
 class GoogleSheetsAuth:
 
     def __init__(self, credentials_json:str = None):
+        # todo: the credentials must be moved to secrets before pushing to production
         self.dev_credentials = r"C:\Users\denni\Downloads\cellular-way-492513-p8-2d96ef76e975.json"
         self.credentials_json = self.dev_credentials if not credentials_json else credentials_json
         self.credentials = None

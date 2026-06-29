@@ -1,5 +1,4 @@
-from variables.static import InternalGoogleSheetVars
-from utils.gsheets_auth import GoogleSheetsAuth
+from data.external.gsheets_auth import GoogleSheetsAuth
 
 class SessionData:
     _instance = None

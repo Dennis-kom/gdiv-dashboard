@@ -1,15 +1,55 @@
+from asyncio import sleep
+from pathlib import Path
+import numpy as np
 import streamlit as st
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import io
 import pandas as pd
+from pyasn1.codec.streaming import peekIntoStream
+
+from utils.logger import color_logger, log_pref
 import openpyxl
 
+log = color_logger()
+_locations = {"file_name" : Path(__file__).name}
+
+def normalize_none_value(value):
+    """
+    Recognizes various representations of 'none' values (None, nan, np.float64(nan), etc.)
+    and converts them to Python's None.
+    
+    Args:
+        value: The value to check
+        
+    Returns:
+        None if the value is any kind of none representation, otherwise returns the original value
+    """
+    # Check for Python None
+    if value is None:
+        return None
+    
+    # Check for pandas NA/NaN values
+    if pd.isna(value):
+        return None
+    
+    # Check for numpy NaN (both regular and scalar types)
+    try:
+        if np.isnan(value):
+            return None
+    except (TypeError, ValueError):
+        # This exception occurs when value is not a numeric type
+        pass
+    
+    # If none of the above, return the original value
+    return value
 
 @st.cache_resource
 class GoogleDriveAuth:
 
     def __init__(self, credentials_json: str = None):
+        self._locations = _locations
+        self._locations["class"] = "GoogleDriveAuth"
         self.dev_credentials = r"C:\Users\denni\Downloads\cellular-way-492513-p8-2d96ef76e975.json"
         self.credentials_json = self.dev_credentials if not credentials_json else credentials_json
 
@@ -113,10 +153,13 @@ class GoogleDriveAuth:
 
     def list_files_in_folder(self, folder_name: str):
         """Scans a folder by name and prints all files inside it."""
+        self._locations["method"] = "list_files_in_folder"
+        self._locations["folder name"] = folder_name
         folder_id = self.get_folder_id_by_name(folder_name)
 
+        self._locations["stage"] = "checking folder ID"
         if not folder_id:
-            print(f"Folder not found: {folder_name}")
+            log.debug(log_pref(locations=self._locations, message=f"Folder not found: {folder_name} returning empty list"))
             return []
 
         query = f"'{folder_id}' in parents and trashed = false"
@@ -128,16 +171,26 @@ class GoogleDriveAuth:
         items = results.get('files', [])
 
         if not items:
-            print("Folder is empty.")
-        else:
-            print(f"Found {len(items)} files in folder '{folder_name}':")
-            for item in items:
-                print(f"- File: {item['name']} | Type: {item['mimeType']} | ID: {item['id']}")
+            log.debug(
+                log_pref(locations=self._locations,
+                         message="Folder is empty."))
 
+        else:
+            log.debug(
+                log_pref(locations=self._locations,
+                         message=f"Found {len(items)} files in folder '{folder_name}':"))
+
+            for item in items:
+                log.debug(
+                    log_pref(locations=self._locations,
+                             message=f"- File: {item['name']} | Type: {item['mimeType']} | ID: {item['id']}"))
+        self._locations.pop("folder name")
+        self._locations.pop("stage")
         return items
 
     def list_files_in_root(self):
         """Queries the root (My Drive) folder directly."""
+        self._locations["method"] = "list_files_in_root"
         query = "'root' in parents and trashed = false"
 
         results = self.service.files().list(
@@ -147,6 +200,9 @@ class GoogleDriveAuth:
 
         items = results.get('files', [])
         return items
+
+    def _covert_to_none_value(self, obj):
+        return not(obj is None  or obj == np.float64('NaN'))
 
     def _find_folder_by_name(self, folder_name: str, parent_id: str = None) -> str:
         """Helper to find folder ID by name, optionally filtered by a parent folder ID."""
@@ -160,38 +216,53 @@ class GoogleDriveAuth:
 
     def scan_all_department_files(self):
         """Scans the fixed directory structure down to the management subfolders."""
-
+        self._locations["method"] = "scan_all_department_files"
+        self._locations["stage"] = "Locate the Main root folder ID"
         # Step 1: Locate the Main root folder ID
         main_id = self._dirs_ids['main']
 
         if not main_id:
-            print("Error: Main folder ID is missing or invalid in _dirs_ids.")
+            log.critical(
+                log_pref(locations=self._locations,
+                         message="Error: Main folder ID is missing or invalid in _dirs_ids."))
             return
+        log.debug(
+            log_pref(locations=self._locations,
+                     message=f"Main folder verified. ID: {main_id}"))
 
-        print(f"Main folder verified. ID: {main_id}")
-
+        self._locations["stage"] = "Locate the nested 'מחלקתיים' folder ID"
         # Step 2: Locate the nested 'מחלקתיים' folder ID
         nested_folder_name = "מחלקתיים"
         nested_id = self._dirs_ids[nested_folder_name]
 
         if not nested_id:
-            print(f"Error: Nested folder '{nested_folder_name}' ID is missing or invalid.")
+            log.critical(
+                log_pref(locations=self._locations,
+                         message=f"Error: Nested folder '{nested_folder_name}' ID is missing or invalid."))
             return
+        log.debug(
+            log_pref(locations=self._locations,
+                        message=f"Nested folder verified. ID: {nested_id}"))
 
-        print(f"Nested folder verified. ID: {nested_id}")
-
+        self._locations["stage"] = "Get all settlement subfolders within the nested 'מחלקתיים' folder"
         # Step 3: Get all settlement subfolders within the nested 'מחלקתיים' folder
         query_subfolders = f"'{nested_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         subfolders_result = self.service.files().list(q=query_subfolders, fields="files(id, name)").execute()
         settlement_folders = subfolders_result.get('files', [])
 
-        print(f"Found {len(settlement_folders)} settlement folders to process.\n")
+        log.debug(
+            log_pref(locations=self._locations,
+                        message=f"Found {len(settlement_folders)} settlement folders to process.\n"))
 
+        self._locations["stage"] = "Iterate through each settlement folder to target its specific management subfolder"
         # Step 4: Iterate through each settlement folder to target its specific management subfolder
         for settlement in settlement_folders:
             settlement_id = settlement['id']
             settlement_name = settlement['name']
-            print(f"--- Processing settlement: {settlement_name} (ID: {settlement_id}) ---")
+            log.debug(
+                log_pref(locations=self._locations,
+                         message=f"--- Processing settlement: {settlement_name} (ID: {settlement_id}) ---"))
+
 
             # Construct target management folder name dynamically (e.g., "זיקים - הנהלה")
             target_management_name = f"{settlement_name} - הנהלה"
@@ -206,8 +277,10 @@ class GoogleDriveAuth:
             management_folders = management_result.get('files', [])
 
             if not management_folders:
-                print(f"   Warning: Management folder '{target_management_name}' not found.")
-                print("\n")
+                log.critical(
+                    log_pref(locations=self._locations,
+                             message=f"   Warning: Management folder '{target_management_name}' not found."))
+
                 continue
 
             management_id = management_folders[0]['id']
@@ -295,12 +368,17 @@ class GoogleDriveAuth:
 
     def get_files_by_folder_id(self, settlement_name: str):
         """Fetches and prints file names from a specific settlement folder ID."""
-
+        self._locations["method"] = "get_files_by_folder_id"
+        log.debug(
+            log_pref(locations=self._locations,
+                     message=f"Extract the folder ID from the dictionary using the provided structure {settlement_name=}"))
         # Extract the folder ID from the dictionary using the provided structure
         try:
             folder_id = self.settlements_dirs_id_sets[settlement_name][1]
         except (KeyError, IndexError):
-            print(f"Error: Settlement '{settlement_name}' or its folder ID at index 1 was not found.")
+            log.critical(
+                log_pref(locations=self._locations,
+                         message=f"Error: Settlement '{settlement_name}' or its folder ID at index 1 was not found."))
             return []
 
         # Construct query to fetch files (excluding subfolders) inside the target folder
@@ -314,38 +392,63 @@ class GoogleDriveAuth:
 
             items = results.get('files', [])
             items_as_list = []
-            print(f"--- Scanning folder for settlement: {settlement_name} (ID: {folder_id}) ---")
+            log.debug(
+                log_pref(locations=self._locations,
+                         message=f" Scanning folder for settlement: {settlement_name} (ID: {folder_id}) --- Found {len(items)} files:"))
+
             if not items:
-                print("   (Folder contains no files)")
+                log.debug(
+                    log_pref(locations=self._locations,
+                             message="   (Folder contains no files)"))
+
             else:
                 for file in items:
-                    print(f"   File: {file['name']} | Type: {file['mimeType']}")
+                    log.debug(
+                        log_pref(locations=self._locations,
+                                 message=f"   File: {file['name']} | Type: {file['mimeType']}"))
+
                     items_as_list.append(file['name'])
-            print("\n")
+            log.debug(
+                log_pref(locations=self._locations,
+                         message="\n --- "))
 
             return items_as_list
 
         except Exception as e:
-            print(f"Error querying files for settlement '{settlement_name}': {e}")
+            log.critical(
+                log_pref(locations=self._locations,
+                         message=f"Error querying files for settlement '{settlement_name}': {e}"))
+
             return []
 
     def find_last_settlement_report(self, settlement_name: str) -> str:
+        self._locations["method"] = "find_last_settlement_report"
         set_list = self.get_files_by_folder_id(settlement_name)
         if not set_list:
-            print(f"No files found for settlement '{settlement_name}'.")
+            log.debug(
+                log_pref(locations=self._locations,
+                         message=f"No files found for settlement '{settlement_name}'."))
+
             return None
         else:
             calc_df = { int(f_name.split('_')[0]): f_name for f_name in set_list if 'אימון' in f_name and f_name.split('_')[0].isdigit() }
 
             max_val = max(calc_df.keys())
-            print(f"--- Max number of files: {max_val} ---")
-            print(f"final result: {calc_df[max_val]}")
+            log.debug(
+                log_pref(locations=self._locations,
+                         message=f"--- Max number of files: {max_val} ---"))
+
+            log.debug(
+                log_pref(locations=self._locations,
+                         message=f"final result: {calc_df[max_val]}"))
+
             return calc_df[max_val]
 
 
 
     def read_xlsx_from_drive(self, file_id: str) -> pd.DataFrame:
         """Downloads a raw .xlsx file from Drive and loads it into a Pandas DataFrame."""
+        self._locations["method"] = "read_xlsx_from_drive"
         try:
             # Downloading the binary content of the Excel file
             request = self.service.files().get_media(fileId=file_id)
@@ -356,12 +459,17 @@ class GoogleDriveAuth:
             return df
 
         except Exception as e:
-            print(f"Error reading Excel file from Drive: {e}")
+            log.debug(
+                log_pref(locations=self._locations,
+                         message=f"Error reading Excel file from Drive: {e}"))
+
+
             return pd.DataFrame()
 
     def get_file_id_by_name_and_parent(self, file_name: str, parent_id: str) -> str:
         """Finds a specific file ID by its name and its parent folder ID."""
         # Construct query to match both the exact file name and its parent folder ID
+        self._locations["method"] = "get_file_id_by_name_and_parent"
         query = f"name = '{file_name}' and '{parent_id}' in parents and trashed = false"
 
         try:
@@ -373,6 +481,7 @@ class GoogleDriveAuth:
             items = results.get('files', [])
 
             if not items:
+
                 print(f"File '{file_name}' not found in parent folder ID: {parent_id}")
                 return None
 
@@ -382,87 +491,120 @@ class GoogleDriveAuth:
             return file_id
 
         except Exception as e:
-            print(f"Error locating file '{file_name}' under parent '{parent_id}': {e}")
+            log.critical(
+                log_pref(locations=self._locations,
+                         message=f"Error locating file '{file_name}' under parent '{parent_id}': {e}"))
+
             return None
+
+    def get_last_file_content_as_data_frame(self, settlement_name: str):
+        self._locations["method"] = "get_last_file_content_as_data_frame"
+
+        target_file_name: str = self.find_last_settlement_report(settlement_name)
+        if not target_file_name:
+            log.critical(
+                log_pref(locations=self._locations,
+                         message=f"No files found for settlement '{target_file_name}'."))
+            return None
+
+        self._locations["stage"] = "Identify the specific file of interest"
+        target_file_id = self.get_file_id_by_name_and_parent(target_file_name, self.settlements_dirs_id_sets[settlement_name][1])
+        if not target_file_id:
+            log.debug(
+                log_pref(locations=self._locations,
+                         message=f"File '{target_file_name}' not found for settlement '{settlement_name}'."))
+            return None
+
+        df = self.read_xlsx_from_drive(target_file_id)
+        if df.empty:
+            return None
+
+        return df
 
     def get_qualification_variable(self, settlement_name: str):
         """Example method to demonstrate fetching a specific file and reading its content."""
         # Step 1: Get the list of files in the target settlement's management folder
-        target_file_name: str = self.find_last_settlement_report(settlement_name)
+        self._locations["method"] = "get_qualification_variable"
 
-        if not target_file_name:
-            print(f"No files found for settlement '{target_file_name}'.")
-            return None
-
-        # Step 2: Identify the specific file of interest (e.g., "qualification_data.xlsx")
-
-        target_file_id = self.get_file_id_by_name_and_parent(target_file_name, self.settlements_dirs_id_sets[settlement_name][1])
-
-        if not target_file_id:
-            print(f"File '{target_file_name}' not found for settlement '{settlement_name}'.")
-            return None
-
-        # Step 3: Read the Excel file content into a DataFrame
-        df = self.read_xlsx_from_drive(target_file_id)
-        # print(df)
-        # return df
+        df = self.get_last_file_content_as_data_frame(settlement_name)
 
         extracted_value = None
 
         if not df.empty:
+            log.debug(
+                log_pref(locations=self._locations,
+                         message="data frame is not empty"))
+
             row_idx = None
             col_idx = None
 
-            for c in range(df.shape[1]):
-                # 1. ניקוי כותרת העמודה מרווחים נסתרים ובדיקה
-                column_name = str(df.columns[c]).strip()
-                if "ציון סופי" in column_name:
-                    col_idx = c
-                    break
 
-                # 2. ניקוי כל התאים בעמודה מרווחים ובדיקה (בצורה חסינת קריסה)
-                # אנחנו הופכים את התאים לטקסט, מנקים רווחים מהקצוות, ובודקים אם "ציון סופי" בפנים
-                has_target = df.iloc[:, c].astype(str).str.strip().str.contains("ציון סופי").any()
 
-                if has_target:
-                    col_idx = c
-                    break
+            row_10 = any([normalize_none_value(df.at[9, c]) for c in range(df.columns.size - 1)])
 
-            # בדיקה זמנית כדי לראות אם מצאנו
-            if col_idx is not None:
-                print(f"Column with 'ציון סופי' found at index: {col_idx}")
-            else:
+            row_11 = any([normalize_none_value(df.at[10, c]) for c in range(df.columns.size - 1)])
 
-                # הדפסה שתראה לך בדיוק מה הדאטה פריים מכיל בשורות הראשונות שלו
-                print(df.head(5))
-            print(f"------- found column {col_idx} -------")
+            start_row = 10 if row_10 else 11 if row_11 else 0
+            run_flag = True
+            col_found = False
+            row_found = False
+            row_offset = 0
+            for r_idx in range(start_row, df.shape[0]):
+                if not col_found or not row_found:
 
-            # 2. Find the row index: one row before the last row containing actual data
-            # Replace empty strings/spaces with None, then check which rows have any valid data
-            has_data = df.replace(r'^\s*$', None, regex=True).notna().any(axis=1)
-            valid_positions = [i for i, available in enumerate(has_data) if available]
+                    for c_idx in range(df.columns.size - 1):
+                        try:
+                            cell_value = str(df.at[r_idx, c_idx]).strip()
+                        except (KeyError, IndexError):
+                            # Skip if cell doesn't exist
+                            continue
 
-            if valid_positions:
-                last_data_row_pos = valid_positions[-1]
-                row_idx = last_data_row_pos - 1  # One row before the last data row
-            else:
-                row_idx = None
+                        if not col_found:
+                            if cell_value == "ציון סופי":
+                                print(f"{cell_value=} {c_idx=}")
+                                col_idx = c_idx
+                                col_found = True
+                        if not row_found:
+                            if cell_value == "ממוצע לקבוצה" or cell_value == "דיווח קבוצתי":
+                                print(f"{cell_value=} {r_idx=}")
+                                row_idx = r_idx
+                                row_found = True
+                                if cell_value == "דיווח קבוצתי":
+                                    row_offset = 6
 
-            # 3. If both indices are valid, extract the value from (row, col - 1)
-            if row_idx is not None and col_idx is not None:
-                if row_idx >= 0 and col_idx > 0:  # Ensure indices are within valid bounds
-                    extracted_value = df.iloc[row_idx, col_idx]
-                    print("--- Successfully found dynamically (Row before last data row) ---")
-                    print(f"Target Row Index: {row_idx} (Last data row was: {last_data_row_pos})")
-                    print(f"Matching Col Index (col - 1): {col_idx }")
-                    print(f"Extracted Value: {extracted_value}")
-                else:
-                    print(f"Error: Calculated indices are out of bounds. Row: {row_idx}, Col: {col_idx}")
-            else:
-                print(
-                    f"Error: Could not locate markers. 'ציון סופי' col: {col_idx} | Last data row found: {bool(valid_positions)}")
-        # ----------------------------------------
+
+
+            if row_11:
+                extracted_value = df.at[row_idx + row_offset, col_idx]
+                log.debug(
+                    log_pref(locations=self._locations,
+                             message=f" row 11 is not empty {row_11} {extracted_value=}"))
+            if row_10:
+                try:
+                    extracted_value = df.at[row_idx + row_offset, col_idx]
+                except IndexError:
+                    extracted_value = df.at[row_idx + row_offset, col_idx]
+                    log.critical(
+                        log_pref(locations=self._locations,
+                                 message=f" row 10 is not empty IndexError {row_10} {extracted_value=}"))
+                except KeyError:
+                    extracted_value = df.at[row_idx + row_offset, col_idx]
+                    log.critical(
+                        log_pref(locations=self._locations,
+                                 message=f" row 10 is not empty KeyError {row_10} {extracted_value=}"))
+                log.debug(
+                    log_pref(locations=self._locations,
+                             message=f" row 10 is not empty {row_10} {extracted_value=}"))
+
+        if extracted_value == "לא עבר":
+            return "0"
 
         return extracted_value
+
+
 # g = GoogleDriveAuth()
-# g.get_qualification_variable("אורים")
+# test_case = ["אבשלום", "איבים", "גבים", "תושיה", "כפר עזה", "שרשרת", "זיקים", "גבעולים", "דקל", "מבטחים", "ניר עוז", "ניר יצחק", "נירים", "כפר מימון", "תלמי יוסף", "תלמי אליהו", "זמרת", "בית הגדי", "בארי", "ברור חיל", "יד מרדכי", "מגן", "סעד", "צאלים", "רוחמה", "שדה ניצן"]
+# #g.get_qualification_variable("אבשלום")
+# print(f"test result = {g.get_qualification_variable(test_case[2])}")
+
+

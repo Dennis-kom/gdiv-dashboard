@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 import streamlit as st
 
-from utils.gsheets_auth import GoogleSheetsAuth
-from variables.static import InternalGoogleSheetVars
+from data.external.gsheets_auth import GoogleSheetsAuth
+from data.static import InternalGoogleSheetVars
 
 logger = logging.getLogger(__name__)
 
