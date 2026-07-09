@@ -29,8 +29,10 @@ class StatusBadgeValues:
     abnormal = ["לא תקין\\חסר", "error"]
 
 
-@st.cache_data
+@st.cache_resource
 class LocalDataEntry:
+    _locations["class"] = "LocalDataEntry"
+    log.debug(log_pref(locations=_locations, message=f" data unit google sheets worksheet invoked"))
     data_sheet = get_google_sheets_instance().get_worksheet(InternalGoogleSheetVars.mbt_spreadsheet_name,
                                       InternalGoogleSheetVars.main_data_worksheet_name)
 
@@ -480,6 +482,7 @@ def show_table():
 
 def show_table_with_battery_(data_frame: list, titles: list, battery_column: str = None, battery_title: str = "מדד"):
     _locations["function"] = "show_table_with_battery_"
+
     df = pd.DataFrame(data_frame, columns=titles)
 
     source_col = battery_column if battery_column in df.columns else titles[-1]
@@ -530,9 +533,14 @@ def show_table_with_battery(data_rows, headers, target_col_name='מדד משוק
     for visual metric representation.
     """
     _locations["function"] = "show_table_with_battery"
+    log.debug(log_pref(locations=_locations, message=f"{len(data_rows)=} row(s)"))
     # 1. יצירת הדאטה פריים וניקוי רווחים מהכותרות
-    cleaned_headers = [str(h).strip() for h in headers]
-    df = pd.DataFrame(data_rows, columns=cleaned_headers)
+    try:
+        cleaned_headers = [str(h).strip() for h in headers]
+        df = pd.DataFrame(data_rows, columns=cleaned_headers)
+    except Exception as e:
+        log.critical(log_pref(locations=_locations, message=f" creating data frame - failed! - {e} exception raised."))
+
 
     target_col = str(target_col_name).strip()
 
@@ -572,7 +580,9 @@ def show_table_with_battery(data_rows, headers, target_col_name='מדד משוק
 def present_model_components_table(settlement_name: str, keys: List, ranges=None, add_data=None):
     _locations["function"] = "present_model_components_table"
     if "present_model_components_table" not in st.session_state:
-        st.session_state["present_model_components_table"] = "calss"
+        st.session_state["present_model_components_table"] = "class"
+    if settlement_name not in st.session_state["session_run_time_data"]:
+        st.session_state["session_run_time_data"][settlement_name] = {}
     local_dict = {'רפואה - אמבולנס':"אמבולנס ממוגן",
                   'רפואה - ציוד':"מדד ציוד רפואי",}
     first_seperator = ["אמבולנס"]
@@ -582,90 +592,126 @@ def present_model_components_table(settlement_name: str, keys: List, ranges=None
         ranges = []
     for index, k_range in enumerate(keys):
         model_table = []
-        try:
-            if k_range in local_dict.keys():
-                model_table = get_google_sheets_instance().get_worksheets_range(
-                    InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name,
-                    ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[local_dict[k_range]])
-            elif k_range == 'מחלקות הגנה - כשירות':
 
-                with st.container():
+        if k_range in local_dict.keys():
+            model_table = get_google_sheets_instance().get_worksheets_range(
+                InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name,
+                ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[local_dict[k_range]])
+        elif k_range == 'מחלקות הגנה - כשירות':
+            with st.container(border=True):
+                # radio_btn_selection = st.radio(label="בחירת נתונים:", options=["מחלקת הגנה","רבש\"צ"],horizontal=True)
+                #if radio_btn_selection == "מחלקת הגנה":
+                with st.container(border=True):
+                    st.write(f" כשירות מחלקת הגנה: {add_data} ")
+                with st.container(border=True):
 
-                    # radio_btn_selection = st.radio(label="בחירת נתונים:", options=["מחלקת הגנה","רבש\"צ"],horizontal=True)
-                    #if radio_btn_selection == "מחלקת הגנה":
-                    with st.container(border=True):
-                        st.write(f" כשירות מחלקת הגנה: {add_data} ")
-                    with st.container(border=True):
+                    if "defence_class" in st.session_state["session_run_time_data"][settlement_name] and len(st.session_state["session_run_time_data"][settlement_name]["defence_class"].get("names")) > 0:
+
+                        df = pd.DataFrame({
+                            "שם": st.session_state["session_run_time_data"][settlement_name]["defence_class"]["names"],
+                            "כשירות": st.session_state["session_run_time_data"][settlement_name]["defence_class"]["qualifications"],
+                        })
+
+                    else:
+                        st.session_state["session_run_time_data"][settlement_name]["defence_class"] = {"names": [], "qualifications": []}
                         dc = DefenceClass()
                         data =dc.get_defence_class_fighters_data_frame(settlement_name)
+                        st.session_state["session_run_time_data"][settlement_name]["defence_class"]["names"] = [tup[0] for tup in data if tup[0] != "nan"]
+                        st.session_state["session_run_time_data"][settlement_name]["defence_class"]["qualifications"] = [tup[1] for tup in data if tup[0] != "nan"]
                         df = pd.DataFrame({
-                            "שם": [tup[0] for tup in data if tup[0] != "nan"],
-                            "כשירות": [tup[1] for tup in data if tup[0] != "nan"],
+                            "שם": st.session_state["session_run_time_data"][settlement_name]["defence_class"]["names"],
+                            "כשירות": st.session_state["session_run_time_data"][settlement_name]["defence_class"]["qualifications"],
                         })
-                        st.markdown(
-                            """
-                            <style>
-                                /* 1. יישור הכותרות והתאים של st.table הסטטי */
-                                .stTable table {
-                                    direction: rtl !important;
-                                    text-align: right !important;
-                                }
-                                .stTable th, .stTable td {
-                                    text-align: right !important;
-                                }
-
-                                /* 2. יישור תאים וכותרות בתוך st.dataframe האינטראקטיבי */
-                                div[data-testid="stDataFrame"] table {
-                                    direction: rtl !important;
-                                }
-                                div[data-testid="stDataFrame"] td, div[data-testid="stDataFrame"] th {
-                                    text-align: right !important;
-                                }
-
-                                /* 3. במידה והשתמשת ברכיב החדש של st.dataframe המבוסס על Glide Data Grid */
-                                div[data-testid="stCanvasDataFrame"] {
-                                    direction: rtl !important;
-                                }
-                                </style>
-                                """,
-                                unsafe_allow_html=True
-                            )
-                        st.table(df)
-                # elif radio_btn_selection == "רבש\"צ":
-                    with st.container(border=True,):
-                        page_layout_rtl()
+                    st.markdown(
+                        """
+                        <style>
+                            /* 1. יישור הכותרות והתאים של st.table הסטטי */
+                            .stTable table {
+                                direction: rtl !important;
+                                text-align: right !important;
+                            }
+                            .stTable th, .stTable td {
+                                text-align: right !important;
+                            }
+                            /* 2. יישור תאים וכותרות בתוך st.dataframe האינטראקטיבי */
+                            div[data-testid="stDataFrame"] table {
+                                direction: rtl !important;
+                            }
+                            div[data-testid="stDataFrame"] td, div[data-testid="stDataFrame"] th {
+                                text-align: right !important;
+                            }
+                            /* 3. במידה והשתמשת ברכיב החדש של st.dataframe המבוסס על Glide Data Grid */
+                            div[data-testid="stCanvasDataFrame"] {
+                                direction: rtl !important;
+                            }
+                            </style>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    st.table(df)
+            # elif radio_btn_selection == "רבש\"צ":
+                with st.container(border=True):
+                    col_1, col_2 = st.columns(2)
+                    with col_1:
                         st.write("רבשצ")
-                    if "ravshats_table" not in st.session_state:
-                        if settlement_name not in st.session_state["ravshats_table"]:
-                            ravshatz_name = ""
-                        st.write("רבשצ לא נמצא במאגר הנתונים")
-                    else:
-                        page_layout_rtl()
-                        log.debug(log_pref(locations=_locations,
-                                              message=f"ravshatz qualification database invoke: session state {st.session_state["ravshats_table"][settlement_name]}\n"))
-                        ravshatz_name = " ".join((st.session_state["ravshats_table"][settlement_name].strip()).split(" ")[:2])
-                        log.debug(log_pref(locations=_locations,
-                                           message=f"cleand name= {ravshatz_name}\n"))
-                        ravshatz = Ravshatz(ravshatz_name,settlement_name)
+                    with col_2:
+                        if "ravshatz" in st.session_state["session_run_time_data"][settlement_name]:
+                            if not st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["name"]:
+                                # print(f"{st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["name"]=}")
+                                ravshatz_name = st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["name"] = " ".join((st.session_state['ravshats_table'][settlement_name].strip()).split(" ")[:2])
+                                # print(
+                                #     f"{st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["name"]=}")
+                                # print(f"{ravshatz_name}")
+                            if not st.session_state["session_run_time_data"][settlement_name]["ravshatz"][ "qualification"]:
 
-                        qualification_status = ravshatz.get_ravshatz_qualification_status()
-                        log.debug(log_pref(locations=_locations,
-                                           message=f"{qualification_status=}\n"))
-                        log.debug(log_pref(locations=_locations,
-                                           message=f"ravshatz qualification database invoke: qualification_status= {qualification_status['data'][0]['qualifications']}\n"))
+                                ravshatz = Ravshatz(ravshatz_name,settlement_name)
+                                try:
+                                    qualification_status = ravshatz.get_ravshatz_qualification_status()['data'][0]['qualifications']
+                                    q_status = \
+                                    st.session_state["session_run_time_data"][settlement_name]["ravshatz"][
+                                        "qualification"] = qualification_status
+                                except Exception as e:
+                                    print("Ravshats exception")
+                                    log.critical(log_pref(locations=_locations,
+                                                       message=f"ravshatz qualification status invoke raisd exception {e}"))
+                        else:
+                            if "ravshatz" not in st.session_state["session_run_time_data"][settlement_name]:
+                                st.session_state["session_run_time_data"][settlement_name]["ravshatz"] =  { "name":"" , "phone": "", "qualification": "" }
+                                log.debug(log_pref(locations=_locations,
+                                                      message=f"ravshatz qualification database invoke: session state {st.session_state["ravshats_table"][settlement_name]}\n"))
+                                ravshatz_name = " ".join((st.session_state["ravshats_table"][settlement_name].strip()).split(" ")[:2])
+                                st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["name"] = ravshatz_name
+                                st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["phone"] = " ".join((st.session_state["ravshats_table"][settlement_name].strip()).split(" ")[-1])
+                                log.debug(log_pref(locations=_locations,
+                                                   message=f"cleand name= {ravshatz_name}\n"))
+                                ravshatz = Ravshatz(ravshatz_name,settlement_name)
+                                try:
+                                    qualification_status = ravshatz.get_ravshatz_qualification_status()
+                                    q_status = qualification_status['data'][0]['qualifications']
+                                    st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["qualification"] = q_status
+                                except Exception as e:
+                                    print("avshats qualification_status exception")
+                                    log.debug(log_pref(locations=_locations,
+                                                       message=f"ravshats qualification_status invoke failed - reading from run time data - exception {e}"))
+                                log.debug(log_pref(locations=_locations,
+                                                   message=f"{qualification_status=}\n"))
+                                log.debug(log_pref(locations=_locations,
+                                                   message=f"ravshatz qualification database invoke: qualification_status= {qualification_status['data'][0]['qualifications']}\n"))
+                            else:
+                                ravshatz_name = st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["name"]
+                                q_status = st.session_state["session_run_time_data"][settlement_name]["ravshatz"]["qualification"]
                         with st.container(border=True):
-                            st.write(f"{ravshatz_name} : {qualification_status['data'][0]['qualifications']}")
+                            st.write(f"{ravshatz_name} : {q_status}")
+                # self_search_make_gauge_graph(settlement_name)
+        else:
+            page_layout_rtl()
+            try:
+                model_table = get_google_sheets_instance().get_worksheets_range(InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name, ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[k_range])
+            except Exception as e:
+                log.critical(log_pref(locations=_locations,
+                                   message=f"model_table with len {len(model_table)} accepted with key {k_range}"))
 
-                    # self_search_make_gauge_graph(settlement_name)
 
-            else:
-                page_layout_rtl()
-                model_table = get_google_sheets_instance().get_worksheets_range(InternalGoogleSheetVars.mbt_spreadsheet_name, settlement_name, ranges[index] if ranges else InternalGoogleSheetVars.settlements_models_ranges[k_range]
-            )
-
-        except Exception as e:
-            log.critical(log_pref(locations=_locations, message=f"\nError revoked from key: {k_range} reading table from file - failed!\n"))
-            st.error(f" {k_range}: {e}")
 
 
         #log(f"checking models table is not null =  {len(model_table)}")

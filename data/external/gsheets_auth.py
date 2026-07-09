@@ -25,7 +25,6 @@ class GoogleSheetsAuth:
 
 
     def get_worksheet(self, spreadsheet_name: str, worksheet_name: str):
-
         data = self.get_spreadsheet(spreadsheet_name).worksheet(worksheet_name).get_all_records()
         return data
 

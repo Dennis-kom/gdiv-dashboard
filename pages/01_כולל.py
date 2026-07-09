@@ -9,13 +9,15 @@ import plotly.express as px
 import traceback
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from data.internal.run_time_instances import get_google_sheets_instance
 from utils.components import show_simple_bar_chart
 from utils.components import status_badge, make_gauge_graph, make_grid, LocalDataEntry, place_vertical_spacer, \
     show_spider_chart, show_status_heat_map, make_linked_gauge_labeled_component
 from data.static import InternalGoogleSheetVars, RollDownOptions
 from utils.data_source import sheet
 from utils.calculations import modeling_elements_names, StochasticModeling
-from utils.logger import color_logger, log_pref
+from utils.logger import color_logger, log_pref, tracer
 from visual_components.page_layout import page_layout_rtl
 from utils.secure import enforce_authentication
 
@@ -35,9 +37,6 @@ st.title("")
 
 data_load_measure_state = {"max_load":4, "load_stack":0}
 st.session_state.settlements = ['הכל'] + list(InternalGoogleSheetVars.settlements_data.keys())
-# st.session_state.val_selections =  ['הכל'] + ["0-30", "30-50", "50-90", "90-100"]
-# st.session_state.precents = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%"]
-# st.session_state.probability = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"]
 st.session_state.data_view_selector = "raw"
 st.session_state.models_list = [mod  for mod in InternalGoogleSheetVars.options['model'] if "מדד" in mod] + ["מדד נץ"]
 
@@ -115,10 +114,10 @@ def filtering(filter_type: str,key="default", iterator = None):
 
 def is_passing_basic_filter():
     return all([len({tab_line['חטיבה'], _all}.intersection(st.session_state.filters['division'])) > 0, len({tab_line['מועצה'], _all}.intersection(st.session_state.filters['council'])) > 0, len({tab_line['סיווג'], _all}.intersection(st.session_state.filters['type'])) > 0, len({tab_line['מרחק מהגדר'], _all}.intersection(st.session_state.filters['distance'])) > 0])
- # st.session_state.filters_local_memory = InternalGoogleSheetVars.settlements_data
-# with st.expander("פילטר ראשי"):
+
 
 with st.expander("מבט כללי"):
+    tracer("pages/01_כולל.py - general_view! ")
     with st.form(key="general_view"):
         if 'current_page' not in st.session_state:
             st.session_state.current_page = 'main'
@@ -127,6 +126,7 @@ with st.expander("מבט כללי"):
         st.session_state.current_page = "main"
         st.session_state.bar_chart_data_frame = {"ישוב": [], "מדד כולל": []}
 
+        # fixme: update the sources to local
         st.session_state.divisions = ['הכל', 'צפונית', 'דרומית']
         st.session_state.councils = ['הכל', 'שדרות', 'שער הנגב', 'שדות נגב', 'אשכול', 'חוף אשקלון']
         st.session_state.types = ['הכל', 'סמוך', 'ליבה', 'ליבה קדמי']
@@ -168,6 +168,7 @@ with st.expander("מבט כללי"):
                         values.append(float(line['מדד כולל'][:-1]))
                         st.session_state.bar_chart_data_frame['ישוב'].append(tab_line['ישוב'])
                         st.session_state.bar_chart_data_frame['מדד כולל'].append(float(line['מדד כולל'][:-1]))
+                        st.session_state["session_run_time_data"][tab_line['ישוב']]["main_score"] = float(line['מדד כולל'][:-1])
 
             st.session_state.all_avg = np.mean(values)
             st.session_state.amount = len(values)
@@ -239,6 +240,7 @@ with st.expander("מבט כללי"):
         st.form_submit_button("טען")
 
 with st.expander("חיתוך נתונים רב מימדי"):
+    tracer("pages/01_כולל.py - חיתוך נתונים רב מימדי! ")
     chosen_view_option = st.radio(options=["מטריצת מדדים", "מפה", "ניתוח רוחבי", "חקר ביצועים"],label="צורת תצוגה ", horizontal=True, key="main_view_selector_ch")
     options_translator = dict(zip(["scores","map","wide","performance"], ["מטריצת מדדים", "מפה", "ניתוח רוחבי", "חקר ביצועים"]))
 
@@ -437,7 +439,7 @@ with st.expander("חיתוך נתונים רב מימדי"):
                 log.debug(log_pref(locations=_locations,
                                        message=f"starting to pull data for {len(st.session_state.main_raw_data_frame)} settlements"))
                 with ThreadPoolExecutor(max_workers=67) as executor:
-                    future_to_sheet = { executor.submit(LocalDataEntry.spreadsheet.get_worksheets_range, InternalGoogleSheetVars.mbt_spreadsheet_name, s, InternalGoogleSheetVars.calculated_table_ranges['הזזה']): s for s in list(st.session_state.main_raw_data_frame.keys())}
+                    future_to_sheet = { executor.submit(get_google_sheets_instance().get_worksheets_range, InternalGoogleSheetVars.mbt_spreadsheet_name, s, InternalGoogleSheetVars.calculated_table_ranges['הזזה']): s for s in list(st.session_state.main_raw_data_frame.keys())}
 
                     for future in as_completed(future_to_sheet):
                         settlement_name = future_to_sheet[future]

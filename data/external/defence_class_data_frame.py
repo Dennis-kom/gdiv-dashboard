@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from data.external.gdrive_auth import GoogleDriveAuth, normalize_none_value
+from data.internal.run_time_instances import get_google_drive_instance
 from utils.logger import color_logger, log_pref
 
 log = color_logger()
@@ -12,7 +13,7 @@ class DefenceClass:
     Uses composition instead of inheritance to avoid issues with @st.cache_resource decorator.
     """
     def __init__(self):
-        self.google_drive = GoogleDriveAuth()
+        self.google_drive = get_google_drive_instance()
         self._locations = _locations.copy()
         self._locations["class"] = "DefenceClass"
 
@@ -82,13 +83,13 @@ class DefenceClass:
                             if cell_value == "שם היורה":
                                 names_col_idx = c_idx
                                 names_row_idx = r_idx + 1
-                                print(f"{cell_value=} {names_col_idx=} {names_row_idx=}")
+                                # print(f"{cell_value=} {names_col_idx=} {names_row_idx=}")
                                 names_col_found = True
                         if not vals_col_found:
                             if cell_value == "עבר/ לא עבר" or cell_value == "בכשירות/לא בכשירות":
                                 val_row_idx = r_idx + 1
                                 val_col_idx = c_idx
-                                print(f"{cell_value=} {val_row_idx=} {val_col_idx=}")
+                                # print(f"{cell_value=} {val_row_idx=} {val_col_idx=}")
                                 vals_col_found = True
 
 
@@ -115,6 +116,25 @@ class DefenceClass:
             extracted_value = list(zip(names_list, vals_list))
 
         return extracted_value
+
+    def get_defence_class_fighters_full_list(self, settlement_name: str):
+        df = self.google_drive.find_full_dc_names_table(settlement_name)
+
+        name_col_idx = 2
+        sec_name_col_idx = 3
+        status_col_idx = 9
+        data_set = {}
+        for row in range(df.shape[0]):
+            full_name =f"{str(df.at[row, name_col_idx]).strip()} {str(df.at[row, sec_name_col_idx]).strip()}"
+            if len(full_name.strip()) >0:
+                status = str(df.at[row, status_col_idx]).strip() if str(df.at[row, status_col_idx]).strip() else "לא פעיל"
+                data_set[full_name] = status
+
+
+        return data_set
+
+
+
 
 
 

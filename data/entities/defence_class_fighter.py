@@ -29,7 +29,7 @@ class Ravshatz(Fighter):
             st.error(f"SUPERBASE: keError fetching qualification status: {e}")
             self.qualification_status = response
         if response is not None:
-            print(f"{response.dict()=}")
+            print(f"data base : {response.dict()=}")
             return response.dict()
         return None
 

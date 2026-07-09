@@ -18,12 +18,7 @@ class GeneralView:
         self.settlement_name = settlement_name
         log.debug(
             log_pref(locations=self.locations, message=f"initializing with{self.settlement_name=}"))
-        if "active_screen_index" not in st.session_state:
-            log.debug(
-                log_pref(locations=self.locations, message=f"active state - active_screen_index was not set"))
-            st.session_state["active_screen_index"] = "general"
-        if "settlements_stack" not in st.session_state:
-            st.session_state["settlements_stack"] = []
+
         st.session_state["settlements_stack"].append(self.settlement_name)
         st.session_state["settlement_name"] = self.settlement_name
 

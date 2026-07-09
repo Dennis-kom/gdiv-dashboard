@@ -8,13 +8,15 @@ from utils.components import show_settlement_map, show_settlement_data_table, ma
 from data.static import InternalGoogleSheetVars
 from Setllements.settlement_details_frame import present_single_settlement_details, get_qualification_data
 from visual_components.page_layout import page_layout_rtl
-from utils.logger import color_logger, log_pref
+from utils.logger import color_logger, log_pref, tracer, tracer_status
 
+page_layout_rtl()
 log = color_logger()
 _locations = {"file_name" : Path(__file__).name}
 
 class PageBase:
     def __init__(self, settlement_name):
+        tracer(f"settelment_page_base.py - init invoked - for settlement {settlement_name} ")
         self.locations = _locations.copy()
         self.locations["class"] = "PageBase"
         self.locations["method"] = "init"
@@ -25,17 +27,29 @@ class PageBase:
             log.debug(
                 log_pref(locations=self.locations, message=f"active state - active_screen_index was not set"))
             st.session_state["active_screen_index"] = "general"
-        if "settlements_stack" not in st.session_state:
-            st.session_state["settlements_stack"] = []
-        elif len(st.session_state["settlements_stack"]) > 0:
+
+        # if "settlements_stack" not in st.session_state:
+        #     st.session_state["settlements_stack"] = []
+        if len(st.session_state["settlements_stack"]) > 0:
             if st.session_state["settlements_stack"][-1] != self.settlement_name:
                 st.session_state["active_screen_index"] = "general"
-        st.session_state["settlements_stack"].append(self.settlement_name)
+        if len(st.session_state["settlements_stack"]) > 0:
+            if st.session_state["settlements_stack"][-1] == self.settlement_name:
+                st.session_state['active_screen_index'] = "general"
+                st.session_state["settlement_details_frame"] = 's_tab1'
+        if settlement_name not in st.session_state["session_run_time_data"]:
+            st.session_state["session_run_time_data"][settlement_name] = {}
+        if "ravshatz" not in st.session_state["session_run_time_data"][settlement_name]:
+            st.session_state["session_run_time_data"][settlement_name]["ravshatz"] = {"name": "",
+                                                                                      "phone": "",
+                                                                                      "qualification": ""}
+
         self.views = None
         page_layout_rtl()
         self.page_present()
 
     def page_present(self):
+        tracer(f"settelment_page_base.py - page_present invoked - for settlement {self.settlement_name} ")
         page_layout_rtl()
         if st.session_state["active_screen_index"] == "general":
             st.markdown(f"""
@@ -48,21 +62,30 @@ class PageBase:
             self.present_detailed_view()
 
     def switch_to_detailed_view(self):
+        tracer(f"settelment_page_base.py - switch_to_detailed_view callback button  - for settlement {self.settlement_name} ")
         st.session_state["active_screen_index"] = "detailed"
+        tracer_status(
+            f"app.py - {st.session_state['ravshats_table']=}, {st.session_state['settlements_stack']=}, {st.session_state['active_screen_index']=}")
+        #self.present_general_view()
+        st.rerun()
+
 
     def present_detailed_view(self):
         if st.session_state["active_screen_index"] == "detailed":
+            if "settlement_details_frame" not in st.session_state:
+                st.session_state["settlement_details_frame"] = "s_tab1"
+        page_layout_rtl()
+        with st.container(border=True):
+            with st.expander(label="צורת תצוגה"):
 
-            sub_tab1, sub_tab2 = st.tabs(["כללי", "מפורט"])
-            # כללי
-            with sub_tab1:
-                present_single_settlement_details(self.settlement_name)
-            #   מפורט
-            with sub_tab2:
-                show_detailed_calculeted_table(self.settlement_name)
+                st.button(label="כללי", on_click=present_single_settlement_details,args=(self.settlement_name,))
+                st.button(label="מפורט", on_click=show_detailed_calculeted_table, args=(self.settlement_name,))
 
     def present_general_view(self):
+        tracer(f"settelment_page_base.py - present_general_view invoked - for settlement {self.settlement_name} ")
         if st.session_state["active_screen_index"] == "general":
+            tracer_status(
+                f"app.py - {st.session_state['ravshats_table']=}, {st.session_state['settlements_stack']=}, {st.session_state['active_screen_index']=}, {st.session_state['settlement_details_frame']=}")
             col1, col2, col3 = st.columns(3)
             with st.container():
                 with col1:
@@ -75,12 +98,7 @@ class PageBase:
                     show_settlement_data_table(self.settlement_name)
             with st.container():
                 with col3:
-                     # st.markdown(f"""
-                     # <div style='text-align: center;'>
-                     #     <h1>{self.settlement_name} </h1>
-                     # </div>
-                     # """, unsafe_allow_html=True)
-                     #st.page_link(f"Setllements/settelment_page_detailed_view.py")
+
                     with st.container():
                         status = self_search_make_gauge_graph(self.settlement_name)
                         st.button(label=f"{self.settlement_name}-{status}",
@@ -88,32 +106,7 @@ class PageBase:
                                     width="stretch",
                                     type="primary",
                                     key=f"{self.settlement_name}_{random()}")
-                # # # the main SO
-                # if st.session_state["active_screen_index"] == "general":
-                #     view = GeneralView(self.settlement_name)
-                # elif st.session_state["active_screen_index"] == "detailed":
-                #     view = DetailedView(self.settlement_name)
 
-                # page_layout_rtl()
-
-
-                # elif st.session_state["active_screen_index"] == "detailed":
-                    # view = DetailedView(self.settlement_name)
-        #
-
-
-
-        #
-        # elif st.session_state["active_screen_index"] == 1:
-        #
-        #     sub_tab1, sub_tab2 = st.tabs(["כללי", "מפורט"])
-        #     # כללי
-        #     with sub_tab1:
-        #         present_single_settlement_details(self.settlement_name)
-        #
-        #     #   מפורט
-        #     with sub_tab2:
-        #         show_detailed_calculeted_table(self.settlement_name)
 
 
 

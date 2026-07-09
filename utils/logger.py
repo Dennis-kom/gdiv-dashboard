@@ -1,6 +1,6 @@
 import logging
 import colorlog
-
+from data.internal.configurations import DebugConfig
 # logging.basicConfig(
 #     level=logging.DEBUG,
 #     format="%(asctime)s-%(levelname)s-%(message)s",
@@ -50,4 +50,19 @@ def log_pref(locations= None, message = None):
     return f"{setter} | {message}"
 
 
+def tracer(msg):
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    RESET = '\033[0m'
+    ORANGE = '\033[33m'
+    if DebugConfig.tracer_active:
+        print(f"{ORANGE}TRACE --> {msg}{RESET}")
 
+def tracer_status(msg):
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    RESET = '\033[0m'
+    if DebugConfig.tracer_active:
+        print(f"{RED}STATUS :: << {msg} >>{RESET}")

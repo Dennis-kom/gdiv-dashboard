@@ -44,7 +44,7 @@ def normalize_none_value(value):
     # If none of the above, return the original value
     return value
 
-@st.cache_resource
+
 class GoogleDriveAuth:
 
     def __init__(self, credentials_json: str = None):
@@ -316,17 +316,17 @@ class GoogleDriveAuth:
             nested_id = self._dirs_ids[nested_folder_name]
 
             if not nested_id:
-                print(f"Error: Nested folder '{nested_folder_name}' ID is missing or invalid.")
+                # print(f"Error: Nested folder '{nested_folder_name}' ID is missing or invalid.")
                 return
 
-            print(f"Nested folder verified. ID: {nested_id}")
+            # print(f"Nested folder verified. ID: {nested_id}")
 
             # Step 3: Get all settlement subfolders within the nested 'מחלקתיים' folder
             query_subfolders = f"'{nested_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
             subfolders_result = self.service.files().list(q=query_subfolders, fields="files(id, name)").execute()
             settlement_folders = subfolders_result.get('files', [])
 
-            print(f"Found {len(settlement_folders)} settlement folders to process.\n")
+           # print(f"Found {len(settlement_folders)} settlement folders to process.\n")
 
             # Step 4: Iterate through each settlement folder to target its specific management subfolder
             for settlement in settlement_folders:
@@ -425,7 +425,7 @@ class GoogleDriveAuth:
         self._locations["method"] = "find_last_settlement_report"
         set_list = self.get_files_by_folder_id(settlement_name)
         if not set_list:
-            log.debug(
+            log.critical(
                 log_pref(locations=self._locations,
                          message=f"No files found for settlement '{settlement_name}'."))
 
@@ -433,7 +433,8 @@ class GoogleDriveAuth:
         else:
             calc_df = { int(f_name.split('_')[0]): f_name for f_name in set_list if 'אימון' in f_name and f_name.split('_')[0].isdigit() }
 
-            max_val = max(calc_df.keys())
+            if calc_df:
+                max_val = max(calc_df.keys())
             log.debug(
                 log_pref(locations=self._locations,
                          message=f"--- Max number of files: {max_val} ---"))
@@ -443,6 +444,52 @@ class GoogleDriveAuth:
                          message=f"final result: {calc_df[max_val]}"))
 
             return calc_df[max_val]
+
+    def find_full_dc_names_table(self, settlement_name: str):
+        self._locations["method"] = "find_last_settlement_report"
+        # getting a list of all files names in the settlement folder
+        set_list = self.get_files_by_folder_id(settlement_name)
+
+        if not set_list:
+            log.critical(
+                log_pref(locations=self._locations,
+                         message=f"No files found for settlement '{settlement_name} - None type returned from {self._locations['method']}'."))
+            return None
+        target_friction = "גיליון מתאמנים ישובי"
+        target_file_name = ""
+        # searching for the file in the list
+        for file_name in set_list:
+            if target_friction in file_name:
+                target_file_name = file_name
+                break
+
+        target_file_id = self.get_file_id_by_name_and_parent(target_file_name, self.settlements_dirs_id_sets[settlement_name][1])
+
+        if not target_file_id:
+            log.critical(
+                log_pref(locations=self._locations,
+                         message=f"target_file_id is none type '{settlement_name} - None type returned from get_file_id_by_name_and_parent '."))
+            return None
+
+
+        file_data_frame = self.read_xlsx_from_drive(target_file_id)
+
+        if file_data_frame is None:
+            log.critical(
+                log_pref(locations=self._locations,
+                         message=f"data frame is none type '{settlement_name} - None type returned from read_xlsx_from_drive with parameter {target_file_id=} '."))
+            return None
+
+        log.debug(
+            log_pref(locations=self._locations,
+                     message=f" returning data frame '{settlement_name}  '."))
+
+        return file_data_frame
+
+
+
+
+
 
 
 
@@ -530,10 +577,11 @@ class GoogleDriveAuth:
 
         extracted_value = None
 
-        if not df.empty:
-            log.debug(
-                log_pref(locations=self._locations,
-                         message="data frame is not empty"))
+        if df is not None:
+            if not df.empty:
+                log.debug(
+                    log_pref(locations=self._locations,
+                             message="data frame is not empty"))
 
             row_idx = None
             col_idx = None
