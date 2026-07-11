@@ -202,7 +202,7 @@ def present_single_settlement_details(settlement_name: str):
                             log.debug(log_pref(locations=_locations, message=f"key = {key} comp = {comp} val_range = {sum(val_range)} avg = {sum(val_range)/len(val_range)}"))
                             spider_chart_df[key] = sum(val_range)/len(val_range)
                             make_gauge_graph(key, sum(val_range)/len(val_range))
-                            st.button(label=f"{key}  פרטים -",
+                            st.button(label=f"  פרטים ",
                                       on_click=switch_view,
                                       args=(callbacks_references[key],),
                                       width="stretch",

@@ -16,7 +16,6 @@ _locations = {"file_name" : Path(__file__).name}
 
 class PageBase:
     def __init__(self, settlement_name):
-        tracer(f"settelment_page_base.py - init invoked - for settlement {settlement_name} ")
         self.locations = _locations.copy()
         self.locations["class"] = "PageBase"
         self.locations["method"] = "init"
@@ -28,8 +27,6 @@ class PageBase:
                 log_pref(locations=self.locations, message=f"active state - active_screen_index was not set"))
             st.session_state["active_screen_index"] = "general"
 
-        # if "settlements_stack" not in st.session_state:
-        #     st.session_state["settlements_stack"] = []
         if len(st.session_state["settlements_stack"]) > 0:
             if st.session_state["settlements_stack"][-1] != self.settlement_name:
                 st.session_state["active_screen_index"] = "general"
@@ -101,10 +98,16 @@ class PageBase:
 
                     with st.container():
                         status = self_search_make_gauge_graph(self.settlement_name)
-                        st.button(label=f"{self.settlement_name}-{status}",
+                        if "תקין" in status and "לא" not in status:
+                            btn_label = f"{self.settlement_name}- ✅"
+                        elif  "חלקי" in status:
+                            btn_label = f"{self.settlement_name}- ⚠️"
+                        else:
+                            btn_label = f"{self.settlement_name}- ❌"
+                        st.button(label=btn_label,
                                     on_click=self.switch_to_detailed_view,
                                     width="stretch",
-                                    type="primary",
+                                    type="tertiary",
                                     key=f"{self.settlement_name}_{random()}")
 
 
