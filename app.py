@@ -114,7 +114,7 @@ def check_password()-> bool:
 
         if submit_button:
 
-            correct_password = st.secrets.get("auth_password", "admin123")
+            correct_password = st.secrets["auth_password"]
 
             if password == correct_password:
                 st.session_state["password_correct"] = True
@@ -155,30 +155,32 @@ if check_password():
     stage_3_res = []
 
     switch_flag = True
+    with st.spinner("מוריד נתונים מהרשת..."):
+        sleep(1)
+    with st.spinner("מבצע עיבוד נתונים ..."):
+        with ThreadPoolExecutor(max_workers=10) as executor:
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+            stage_2_func = [executor.submit(worker_with_context, setup_ravshtz_run_time_data_elements,key) for key in InternalGoogleSheetVars.settlements_data.keys()]
 
-        stage_2_func = [executor.submit(worker_with_context, setup_ravshtz_run_time_data_elements,key) for key in InternalGoogleSheetVars.settlements_data.keys()]
-
-        stage_3_func = [executor.submit(worker_with_context,setup_defence_class_fighters,key) for key in InternalGoogleSheetVars.settlements_data.keys()]
-
-
-        for task in as_completed(stage_2_func):
-
-            try:
-                if task:
-                    stage_2_res.append(task.result())
-            except Exception as e:
-                print(f"Exception in appending stage_2_res.append(task.result()) : {e}")
+            stage_3_func = [executor.submit(worker_with_context,setup_defence_class_fighters,key) for key in InternalGoogleSheetVars.settlements_data.keys()]
 
 
-        for task in as_completed(stage_3_func):
+            for task in as_completed(stage_2_func):
 
-            try:
-                # {settelment_name: {names: [], qulifications: []}
-                stage_3_res.append(task.result())
-            except Exception as e:
-                print(f"Exception in appending stage_3_res.append(task.result()) : {e}")
+                try:
+                    if task:
+                        stage_2_res.append(task.result())
+                except Exception as e:
+                    print(f"Exception in appending stage_2_res.append(task.result()) : {e}")
+
+
+            for task in as_completed(stage_3_func):
+
+                try:
+                    # {settelment_name: {names: [], qulifications: []}
+                    stage_3_res.append(task.result())
+                except Exception as e:
+                    print(f"Exception in appending stage_3_res.append(task.result()) : {e}")
 
 
     with st.spinner("טוען מבנה זיכרון פנימי"):
@@ -187,7 +189,7 @@ if check_password():
                 if set_name:
                     if list(set_name.keys())[0] == key:
                         st.session_state["session_run_time_data"][key]["ravhatz"]["name"] = set_name[key]["name"]
-        st.success("מבנה זיכרון פנימי בוצע!")
+        st.success("מנגנון זיכרון פנימי אותחל בהצלחה!")
 
     with st.spinner("מבצע חישובי ביניים"):
         for key in InternalGoogleSheetVars.settlements_data.keys():
